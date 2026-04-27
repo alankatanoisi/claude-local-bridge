@@ -8,17 +8,35 @@
  * The only transformation is model name resolution and injecting auth headers.
  */
 
-const { readBody, sendJson, verboseLog } = require('../utils');
+const { readBody, sendJson, verboseLog, log } = require('../utils');
 const { resolveModel } = require('../models');
 const { proxyToAnthropic } = require('../proxy');
 
 const vscode = require('vscode');
+
+function dumpCapture(ctx, req, raw) {
+  const redacted = {};
+  for (const [k, v] of Object.entries(req.headers)) {
+    if (k.toLowerCase() === 'authorization' && typeof v === 'string') {
+      redacted[k] = v.slice(0, 15) + '…REDACTED…' + v.slice(-4);
+    } else if (k.toLowerCase() === 'x-api-key' && typeof v === 'string') {
+      redacted[k] = v.slice(0, 8) + '…REDACTED…' + v.slice(-4);
+    } else {
+      redacted[k] = v;
+    }
+  }
+  log(ctx, '─── CAPTURE: incoming /v1/messages ───');
+  log(ctx, 'HEADERS: ' + JSON.stringify(redacted, null, 2));
+  log(ctx, 'BODY: ' + raw);
+  log(ctx, '─── END CAPTURE ───');
+}
 
 /**
  * POST /v1/messages
  */
 async function handleAnthropicMessages(ctx, req, res) {
   const raw = await readBody(req);
+  dumpCapture(ctx, req, raw);
   verboseLog(ctx, `→ /v1/messages body: ${raw.slice(0, 300)}`);
 
   let body;
