@@ -16,6 +16,8 @@ const config = {
   apiKey: '',
   defaultModel: 'claude-sonnet-4-5',
   logRequests: false,
+  requireCallerAuth: true,
+  callerAuthToken: '',
 };
 
 const vscode = {

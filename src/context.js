@@ -38,6 +38,11 @@ function createContext() {
     _originalHttpsRequest: null,
     _interceptedRequest: null,
 
+    // Caller-auth token metadata
+    callerAuthToken: null,
+    callerAuthTokenSource: 'uninitialized',
+    callerAuthTokenRotatedAt: null,
+
     // Identity (for logging/debug)
     sessionId: randomUUID(),
     extensionVersion: '1.0.0',

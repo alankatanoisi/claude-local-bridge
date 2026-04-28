@@ -71,6 +71,16 @@
           "type": "boolean",
           "default": false,
           "description": "Enable verbose request/response logging to the Output channel"
+        },
+        "claudeLocalBridge.requireCallerAuth": {
+          "type": "boolean",
+          "default": true,
+          "description": "Require Authorization: Bearer token on bridge endpoints (except explicit unauthenticated allowlist)"
+        },
+        "claudeLocalBridge.callerAuthToken": {
+          "type": "string",
+          "default": "",
+          "description": "Static caller auth Bearer token override (leave empty to use secret storage token)"
         }
       }
     },

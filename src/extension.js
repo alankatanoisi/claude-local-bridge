@@ -22,6 +22,7 @@ const { startServer, stopServer } = require('./server');
 const { startCaptureProxy, stopCaptureProxy } = require('./capture-proxy');
 const { showStatus, showCredentialSource } = require('./handlers/debug');
 const httpsInterceptor = require('./interceptors/https');
+const { initializeCallerAuth, tokenFingerprint } = require('./caller-auth');
 
 /** @type {ReturnType<typeof createContext>} */
 let ctx;
@@ -52,8 +53,20 @@ function activate(context) {
   // any other extension (like Claude Code) makes outgoing HTTPS requests.
   httpsInterceptor.install(ctx);
 
-  log(ctx, 'Extension activated. Starting server...');
-  startServer(ctx).catch((err) => log(ctx, `Startup error: ${err.message}`, true));
+  log(ctx, 'Extension activated. Initializing caller auth...');
+  initializeCallerAuth(ctx, context)
+    .then(() => {
+      const fp = tokenFingerprint(ctx.callerAuthToken);
+      if (ctx.callerAuthToken) {
+        log(ctx, `Caller auth initialized [${ctx.callerAuthTokenSource}] fingerprint=${fp}`);
+      } else {
+        log(ctx, `Caller auth disabled [${ctx.callerAuthTokenSource}]`);
+      }
+
+      log(ctx, 'Starting server...');
+      return startServer(ctx);
+    })
+    .catch((err) => log(ctx, `Startup error: ${err.message}`, true));
 
   // Start auth capture proxy — Claude Code routes through this via HTTPS_PROXY
   startCaptureProxy(ctx);
