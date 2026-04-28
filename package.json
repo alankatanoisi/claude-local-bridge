@@ -71,6 +71,37 @@
           "type": "boolean",
           "default": false,
           "description": "Enable verbose request/response logging to the Output channel"
+        },
+        "claudeLocalBridge.enableHttpsInterceptor": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable HTTPS/fetch interception for live credential capture"
+        },
+        "claudeLocalBridge.enableCaptureProxy": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable local auth capture proxy on localhost:11439 (disabled by default)"
+        },
+        "claudeLocalBridge.interceptorHostAllowlist": {
+          "type": "array",
+          "default": [
+            "api.anthropic.com",
+            "claude.ai",
+            "api.claude.ai"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Hostnames eligible for auth/fingerprint interception"
+        },
+        "claudeLocalBridge.interceptorMode": {
+          "type": "string",
+          "default": "capture-auth",
+          "enum": [
+            "observe-only",
+            "capture-auth"
+          ],
+          "description": "observe-only logs/inspects safely; capture-auth captures credentials and may chain around existing wrappers"
         }
       }
     },

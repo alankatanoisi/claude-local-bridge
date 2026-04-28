@@ -26,12 +26,28 @@ const httpsInterceptor = require('./interceptors/https');
 /** @type {ReturnType<typeof createContext>} */
 let ctx;
 
+function readInterceptorSettings() {
+  const config = vscode.workspace.getConfiguration('claudeLocalBridge');
+  return {
+    enableHttpsInterceptor: config.get('enableHttpsInterceptor', true),
+    enableCaptureProxy: config.get('enableCaptureProxy', false),
+    interceptorHostAllowlist: config.get('interceptorHostAllowlist', [
+      'api.anthropic.com',
+      'claude.ai',
+      'api.claude.ai',
+    ]),
+    interceptorMode: config.get('interceptorMode', 'capture-auth'),
+  };
+}
+
 // ─────────────────────────────────────────────
 // Activation
 // ─────────────────────────────────────────────
 
 function activate(context) {
   ctx = createContext();
+  const settings = readInterceptorSettings();
+  ctx.interceptorSettings = settings;
 
   ctx.outputChannel = vscode.window.createOutputChannel('Claude Local Bridge');
   context.subscriptions.push(ctx.outputChannel);
@@ -48,15 +64,28 @@ function activate(context) {
     vscode.commands.registerCommand('claudeLocalBridge.showCredentialSource', () => showCredentialSource(ctx)),
   );
 
-  // Install HTTPS interceptor first — it needs to be in place before
-  // any other extension (like Claude Code) makes outgoing HTTPS requests.
-  httpsInterceptor.install(ctx);
+  if (settings.enableHttpsInterceptor) {
+    // Install HTTPS interceptor first — it needs to be in place before
+    // any other extension (like Claude Code) makes outgoing HTTPS requests.
+    httpsInterceptor.install(ctx, settings);
+    log(
+      ctx,
+      `🔧 Interceptor mode: ${settings.interceptorMode} (allowlist: ${settings.interceptorHostAllowlist.join(', ') || 'none'})`,
+    );
+  } else {
+    log(ctx, '🔧 HTTPS interceptor disabled by configuration');
+  }
 
   log(ctx, 'Extension activated. Starting server...');
   startServer(ctx).catch((err) => log(ctx, `Startup error: ${err.message}`, true));
 
-  // Start auth capture proxy — Claude Code routes through this via HTTPS_PROXY
-  startCaptureProxy(ctx);
+  if (settings.enableCaptureProxy) {
+    // Start auth capture proxy — Claude Code routes through this via HTTPS_PROXY
+    startCaptureProxy(ctx);
+    log(ctx, '🔧 Capture proxy enabled by configuration');
+  } else {
+    log(ctx, '🔧 Capture proxy disabled by configuration');
+  }
 }
 
 function deactivate() {

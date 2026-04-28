@@ -16,6 +16,17 @@ const config = {
   apiKey: '',
   defaultModel: 'claude-sonnet-4-5',
   logRequests: false,
+  enableHttpsInterceptor: true,
+  enableCaptureProxy: false,
+  interceptorHostAllowlist: ['api.anthropic.com', 'claude.ai', 'api.claude.ai'],
+  interceptorMode: 'capture-auth',
+};
+const defaultConfig = { ...config };
+const configurationApi = {
+  get: (key, defaultVal) => {
+    if (key in config) return config[key];
+    return defaultVal;
+  },
 };
 
 const vscode = {
@@ -38,12 +49,7 @@ const vscode = {
     showErrorMessage: () => {},
   },
   workspace: {
-    getConfiguration: (_section) => ({
-      get: (key, defaultVal) => {
-        if (key in config) return config[key];
-        return defaultVal;
-      },
-    }),
+    getConfiguration: (_section) => configurationApi,
   },
   commands: {
     registerCommand: (_id, _fn) => ({ dispose: () => {} }),
@@ -54,6 +60,15 @@ const vscode = {
       this.id = id;
     }
   },
+};
+
+vscode.__setConfig = (next) => {
+  Object.assign(config, next);
+};
+
+vscode.__resetConfig = () => {
+  Object.keys(config).forEach((key) => delete config[key]);
+  Object.assign(config, defaultConfig);
 };
 
 // Intercept require('vscode') at the Module._load level.

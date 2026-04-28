@@ -36,7 +36,11 @@ function createContext() {
 
     // Interceptor original function references (for clean uninstall)
     _originalHttpsRequest: null,
+    _wrappedHttpsRequest: null,
     _interceptedRequest: null,
+    _originalFetch: null,
+    _interceptedFetch: null,
+    interceptorSettings: null,
 
     // Identity (for logging/debug)
     sessionId: randomUUID(),
