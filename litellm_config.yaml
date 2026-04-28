@@ -1,0 +1,19 @@
+model_list:
+  - model_name: claude-opus-4-6
+    litellm_params:
+      model: claude-opus-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-sonnet-4-6
+    litellm_params:
+      model: claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-haiku-4-5-20251001
+    litellm_params:
+      model: claude-haiku-4-5-20251001
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+general_settings:
+  master_key: "sk-MBulWOr_I8Wv6M5YNmr3QU7CM2PmPpHjxaqo84liM1c"
+
+environment_variables:
+  ANTHROPIC_API_KEY: "local"
