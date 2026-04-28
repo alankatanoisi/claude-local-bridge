@@ -131,6 +131,19 @@ async function handleRequest(ctx, req, res) {
 
   const url = new URL(req.url, 'http://localhost');
 
+  const config = vscode.workspace.getConfiguration('claudeLocalBridge');
+  const requireCallerAuth = config.get('requireCallerAuth', true);
+  if (requireCallerAuth && !isCallerAuthExempt(req, url.pathname)) {
+    const authHeader = req.headers['authorization'] || req.headers['Authorization'];
+    const bearerToken = parseBearerToken(authHeader);
+    if (!bearerToken) {
+      return sendCallerAuthError(res, 'caller_auth_missing', 'Unauthorized: Missing Bearer token');
+    }
+    if (!ctx.callerAuthToken || bearerToken !== ctx.callerAuthToken) {
+      return sendCallerAuthError(res, 'caller_auth_invalid', 'Unauthorized: Invalid Bearer token');
+    }
+  }
+
   // ── Model listing ──
   if (req.method === 'GET' && (url.pathname === '/v1/models' || url.pathname === '/models')) {
     return handleModels(ctx, req, res);
@@ -161,4 +174,37 @@ async function handleRequest(ctx, req, res) {
   });
 }
 
-module.exports = { startServer, stopServer, isLocalhostOrigin };
+
+
+function parseBearerToken(authHeader) {
+  if (!authHeader || typeof authHeader !== 'string') return null;
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) return null;
+  const token = match[1].trim();
+  return token || null;
+}
+
+// Explicit unauthenticated allowlist:
+//   GET /v1/debug (local diagnostics endpoint)
+function isCallerAuthExempt(req, pathname) {
+  return req.method === 'GET' && pathname === '/v1/debug';
+}
+
+function sendCallerAuthError(res, code, message) {
+  res.setHeader('WWW-Authenticate', 'Bearer realm="claude-local-bridge"');
+  sendJson(res, 401, {
+    error: {
+      message,
+      type: 'unauthorized',
+      code,
+    },
+  });
+}
+
+module.exports = {
+  startServer,
+  stopServer,
+  isLocalhostOrigin,
+  parseBearerToken,
+  isCallerAuthExempt,
+};

@@ -22,6 +22,13 @@ async function handleDebug(ctx, _req, res) {
     extensionVersion: ctx.extensionVersion,
     credentialSource: creds.source,
     authenticated: !!(creds.apiKey || creds.accessToken),
+    callerAuth: {
+      enabled: config.get('requireCallerAuth', true),
+      tokenSource: ctx.callerAuthTokenSource || 'uninitialized',
+      tokenLoaded: !!ctx.callerAuthToken,
+      tokenRotatedAt: ctx.callerAuthTokenRotatedAt ? new Date(ctx.callerAuthTokenRotatedAt).toISOString() : null,
+      token: ctx.callerAuthToken ? '[REDACTED]' : null,
+    },
     interceptedToken: ctx.interceptedToken
       ? `${ctx.interceptedToken.slice(0, 8)}...${ctx.interceptedToken.slice(-4)}`
       : null,
