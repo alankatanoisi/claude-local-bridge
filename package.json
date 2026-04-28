@@ -35,7 +35,8 @@
     "lint": "eslint --config eslint.config.cjs src/ test/",
     "lint:fix": "eslint --config eslint.config.cjs src/ test/ --fix",
     "format": "prettier --write \"src/**/*.js\" \"test/**/*.js\" \"*.json\" \"*.md\"",
-    "format:check": "prettier --check \"src/**/*.js\" \"test/**/*.js\" \"*.json\" \"*.md\""
+    "format:check": "prettier --check \"src/**/*.js\" \"test/**/*.js\" \"*.json\" \"*.md\"",
+    "check:docs": "node scripts/check-doc-defaults.js"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
