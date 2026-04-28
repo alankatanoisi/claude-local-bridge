@@ -1,18 +1,38 @@
 # Claude Local Bridge
 
-A VS Code extension that reads your **Claude Code** credentials and exposes them as a local HTTP server on `localhost:11436`, compatible with both the **Anthropic Messages API** and the **OpenAI Chat Completions API**.
+A VS Code extension that reads your **Claude Code** credentials and exposes them as a local HTTP server on `http://localhost:11437`, compatible with both the **Anthropic Messages API** and **OpenAI-compatible `/v1` clients**.
 
-Point any LLM tool at `http://localhost:11436` and it will transparently use your Claude Pro/Max subscription — no separate API key required.
+Use Claude CLI with `http://localhost:11437`, and point OpenAI-style tools to `http://localhost:11437/v1` — the bridge injects your real Claude credentials so no separate Anthropic API key is needed.
+
+---
+
+## Defaults at a glance
+
+Defaults below are sourced from `package.json` (`contributes.configuration.properties`).
+
+| Setting                              | Default (from package.json) | Notes                                            |
+| ------------------------------------ | --------------------------- | ------------------------------------------------ |
+| `claudeLocalBridge.port`             | `11437`                     | Local bridge listens on `http://localhost:11437` |
+| `claudeLocalBridge.defaultModel`     | `claude-sonnet-4-5`         | Used when requests omit `model`                  |
+| `claudeLocalBridge.anthropicBaseUrl` | `https://api.anthropic.com` | Upstream Anthropic endpoint                      |
+| `claudeLocalBridge.logRequests`      | `false`                     | Verbose request/response logging                 |
+| `claudeLocalBridge.apiKey`           | `""`                        | Manual fallback key (lowest priority)            |
 
 ---
 
 ## How it works
 
+### Architecture flow
+
 ```
-Your tool  →  localhost:11436  →  reads Claude Code credentials  →  api.anthropic.com
+Claude CLI (Anthropic format) ─┐
+OpenAI-compatible tools (/v1) ─┼─> Claude Local Bridge (http://localhost:11437)
+                               │      ↓ credential discovery
+                               │      ↓ request normalization / passthrough
+                               └──> api.anthropic.com
 ```
 
-The extension discovers your credentials automatically (see priority order below), injects the auth header, and pipes the response straight back — with true streaming support and no extra buffering.
+The extension discovers credentials automatically (see priority order below), injects the auth header, and streams upstream responses back to callers.
 
 ---
 
@@ -48,7 +68,7 @@ Open **VS Code Settings** and search for `Claude Local Bridge`:
 
 | Setting                              | Default                     | Description                               |
 | ------------------------------------ | --------------------------- | ----------------------------------------- |
-| `claudeLocalBridge.port`             | `11436`                     | HTTP server port                          |
+| `claudeLocalBridge.port`             | `11437`                     | HTTP server port                          |
 | `claudeLocalBridge.anthropicBaseUrl` | `https://api.anthropic.com` | Override for staging                      |
 | `claudeLocalBridge.apiKey`           | `""`                        | Manual API key (lowest priority)          |
 | `claudeLocalBridge.defaultModel`     | `claude-sonnet-4-5`         | Default model when none is specified      |
@@ -56,26 +76,54 @@ Open **VS Code Settings** and search for `Claude Local Bridge`:
 
 ---
 
+## Base URL patterns by client type
+
+- **Claude CLI (Anthropic API client):** `http://localhost:11437` (no `/v1` suffix in `ANTHROPIC_BASE_URL`)
+- **OpenAI-compatible clients:** `http://localhost:11437/v1`
+
+---
+
 ## Using with Claude Code CLI
 
-Set `ANTHROPIC_BASE_URL` to point Claude Code at your local bridge:
+Set `ANTHROPIC_BASE_URL` to the bridge root (no `/v1`):
 
 ```bash
-export ANTHROPIC_BASE_URL=http://localhost:11436
-export ANTHROPIC_API_KEY=local  # required by the CLI, value is ignored
+export ANTHROPIC_BASE_URL=http://localhost:11437
+export ANTHROPIC_API_KEY=local  # required by CLI env checks; value is ignored by bridge
 
 claude
 ```
 
-The Claude Code CLI will route its requests through the bridge, which injects your real credentials.
+The Claude Code CLI routes requests through the bridge, which injects real credentials.
 
-## Using with Continue.dev / Cursor / other tools
+## Using with third-party OpenAI-compatible tools
 
-Point the provider at:
+For tools like Continue.dev, Cursor, Cline/Roo, Aider, Open WebUI, Cherry Studio, or LiteLLM:
 
-- **Base URL**: `http://localhost:11436`
-- **API Key**: anything (e.g. `local`) — the bridge ignores the incoming key and uses its own credentials
-- **Model**: any Claude model name (e.g. `claude-sonnet-4-5`)
+- **Base URL:** `http://localhost:11437/v1`
+- **API Key:** any placeholder (for example `local`)
+- **Model:** any supported Claude model (for example `claude-sonnet-4-5`)
+
+Example (Aider):
+
+```bash
+aider --model claude-sonnet-4-5 --openai-api-base http://localhost:11437/v1 --openai-api-key local
+```
+
+Example (OpenCode provider config):
+
+```json
+{
+  "provider": {
+    "claude-bridge": {
+      "npm": "@ai-sdk/openai",
+      "options": {
+        "baseURL": "http://localhost:11437/v1"
+      }
+    }
+  }
+}
+```
 
 ---
 
@@ -87,13 +135,13 @@ Claude Code OAuth tokens expire periodically. The bridge will:
 2. Clear its credential cache automatically
 3. Retry once with freshly discovered credentials
 
-If the retry also fails, run `claude /login` (or simply open Claude Code) — the CLI will refresh the token, which the bridge will pick up on the next request.
+If the retry also fails, run `claude /login` (or open Claude Code) so the token refreshes.
 
 ---
 
 ## Status Bar
 
-The extension shows a status bar item: `📡 Claude Bridge :11436 [keychain]`
+The extension shows a status bar item: `📡 Claude Bridge :11437 [keychain]`
 
 Click it to see the current credential source and server status.
 
@@ -115,6 +163,7 @@ npm install
 npm run format   # Prettier
 npm run lint     # ESLint
 npm test         # node:test suite
+npm run check:docs
 ```
 
 Press `F5` in VS Code to launch an Extension Development Host.

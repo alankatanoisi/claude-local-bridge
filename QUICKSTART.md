@@ -30,7 +30,12 @@ This tests your OAuth token against multiple Anthropic endpoints and tells you w
 
 ---
 
-## Step 4: Point a tool at the bridge
+## Step 4: Point a tool at the bridge (URL pattern guide)
+
+Use this rule to avoid misconfiguration:
+
+- **Claude CLI (`ANTHROPIC_BASE_URL`)** → `http://localhost:11437` (**no** `/v1` suffix)
+- **OpenAI-compatible tools** → `http://localhost:11437/v1`
 
 ### For Claude Code CLI:
 
