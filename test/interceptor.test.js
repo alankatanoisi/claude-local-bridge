@@ -101,6 +101,32 @@ describe('https interceptor', () => {
     assert.ok(ctx._logs.some((line) => line.includes('already wrapped')));
   });
 
+  it('aborts atomically when fetch conflict is present in observe-only mode', () => {
+    const ctx = makeCtx();
+    const originalRequest = https.request;
+    const originalFetch = globalThis.fetch;
+
+    function wrappedFetchByOther(...args) {
+      return originalFetch(...args);
+    }
+    Object.defineProperty(wrappedFetchByOther, Symbol.for('claudeLocalBridge.fetchWrapper'), {
+      value: { owner: 'other-fetch-wrapper', previous: originalFetch },
+      configurable: true,
+    });
+    globalThis.fetch = wrappedFetchByOther;
+
+    interceptor.install(ctx, {
+      interceptorMode: 'observe-only',
+      interceptorHostAllowlist: ['api.anthropic.com'],
+    });
+
+    // No partial install of https.request should happen.
+    assert.equal(https.request, originalRequest);
+    assert.equal(globalThis.fetch, wrappedFetchByOther);
+    assert.equal(ctx._interceptedRequest, null);
+    assert.equal(ctx._interceptedFetch, null);
+  });
+
   it('chains safely in capture-auth mode and uninstall is idempotent', () => {
     const ctx = makeCtx();
 

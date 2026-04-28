@@ -243,40 +243,48 @@ function install(ctx, settings = {}) {
   ctx.interceptorSettings = settings;
   const normalized = normalizeSettings(settings);
 
-  // Patch https.request
   const currentRequest = https.request;
+  const currentFetch = typeof globalThis.fetch === 'function' ? globalThis.fetch : null;
   const existingWrapper = currentRequest?.[HTTPS_REQUEST_WRAPPER_SYMBOL];
-  if (existingWrapper && existingWrapper.owner !== 'claude-local-bridge') {
+  const existingFetchWrapper = currentFetch?.[FETCH_WRAPPER_SYMBOL];
+
+  const requestConflict = existingWrapper && existingWrapper.owner !== 'claude-local-bridge';
+  const fetchConflict = existingFetchWrapper && existingFetchWrapper.owner !== 'claude-local-bridge';
+
+  if (requestConflict) {
     log(ctx, `⚠️ HTTPS request already wrapped by ${existingWrapper.owner}`, true);
-    if (normalized.interceptorMode === MODES.OBSERVE_ONLY) {
-      log(ctx, '⚠️ observe-only mode aborts install on wrapper conflict');
-      return;
-    }
+  }
+  if (fetchConflict) {
+    log(ctx, `⚠️ fetch already wrapped by ${existingFetchWrapper.owner}`, true);
+  }
+  if ((requestConflict || fetchConflict) && normalized.interceptorMode === MODES.OBSERVE_ONLY) {
+    log(ctx, '⚠️ observe-only mode aborts install on wrapper conflict');
+    return;
   }
 
-  ctx._originalHttpsRequest = currentRequest;
-  ctx._wrappedHttpsRequest = currentRequest;
-  ctx._interceptedRequest = createInterceptedRequest(ctx);
-  markWrapper(ctx._interceptedRequest, 'claude-local-bridge', currentRequest, HTTPS_REQUEST_WRAPPER_SYMBOL);
-  https.request = ctx._interceptedRequest;
-  log(ctx, '🔌 HTTPS interceptor installed (watching Anthropic endpoints)');
+  // Patch https.request
+  if (!ctx._interceptedRequest || https.request !== ctx._interceptedRequest) {
+    ctx._originalHttpsRequest = currentRequest;
+    ctx._wrappedHttpsRequest = currentRequest;
+    ctx._interceptedRequest = createInterceptedRequest(ctx);
+    markWrapper(ctx._interceptedRequest, 'claude-local-bridge', currentRequest, HTTPS_REQUEST_WRAPPER_SYMBOL);
+    https.request = ctx._interceptedRequest;
+    log(ctx, '🔌 HTTPS interceptor installed (watching Anthropic endpoints)');
+  } else {
+    log(ctx, '🔌 HTTPS interceptor already installed');
+  }
 
   // Patch globalThis.fetch (used by Anthropic SDK)
-  if (typeof globalThis.fetch === 'function') {
-    const currentFetch = globalThis.fetch;
-    const existingFetchWrapper = currentFetch?.[FETCH_WRAPPER_SYMBOL];
-    if (existingFetchWrapper && existingFetchWrapper.owner !== 'claude-local-bridge') {
-      log(ctx, `⚠️ fetch already wrapped by ${existingFetchWrapper.owner}`, true);
-      if (normalized.interceptorMode === MODES.OBSERVE_ONLY) {
-        log(ctx, '⚠️ observe-only mode aborts fetch install on wrapper conflict');
-        return;
-      }
+  if (currentFetch) {
+    if (!ctx._interceptedFetch || globalThis.fetch !== ctx._interceptedFetch) {
+      ctx._originalFetch = currentFetch;
+      ctx._interceptedFetch = createInterceptedFetch(ctx);
+      markWrapper(ctx._interceptedFetch, 'claude-local-bridge', currentFetch, FETCH_WRAPPER_SYMBOL);
+      globalThis.fetch = ctx._interceptedFetch;
+      log(ctx, '🔌 Fetch interceptor installed (watching Anthropic endpoints)');
+    } else {
+      log(ctx, '🔌 Fetch interceptor already installed');
     }
-    ctx._originalFetch = currentFetch;
-    ctx._interceptedFetch = createInterceptedFetch(ctx);
-    markWrapper(ctx._interceptedFetch, 'claude-local-bridge', currentFetch, FETCH_WRAPPER_SYMBOL);
-    globalThis.fetch = ctx._interceptedFetch;
-    log(ctx, '🔌 Fetch interceptor installed (watching Anthropic endpoints)');
   }
 }
 
