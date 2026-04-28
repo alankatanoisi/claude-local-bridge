@@ -2,7 +2,7 @@
 
 const vscode = require('vscode');
 const http = require('http');
-const { log, sendJson, updateStatusBar } = require('./utils');
+const { log, sendJson, sendSafeJson, updateStatusBar } = require('./utils');
 const { handleModels } = require('./handlers/models');
 const { handleAnthropicMessages, handleCountTokens } = require('./handlers/anthropic');
 const { handleChatCompletions } = require('./handlers/openai');
@@ -21,9 +21,9 @@ async function startServer(ctx) {
 
   ctx.server = http.createServer((req, res) => {
     handleRequest(ctx, req, res).catch((err) => {
-      log(ctx, `Request error: ${err.message}`, true);
+      log(ctx, { event: 'server.request_error', path: req.url, details: { message: err.message } }, true);
       if (!res.headersSent) {
-        sendJson(res, 500, { error: { message: err.message, type: 'internal_error' } });
+        sendSafeJson(res, 500, { error: { message: 'Internal server error', type: 'internal_error' } });
       } else if (!res.writableEnded) {
         res.write(`data: {"error": "${err.message.replace(/"/g, '\\"')}"}\n\ndata: [DONE]\n\n`);
         res.end();
@@ -49,7 +49,7 @@ async function startServer(ctx) {
         ctx.server.listen(port, '127.0.0.1', () => {
           ctx.server.removeListener('error', onError);
           const creds = getCredentials(ctx);
-          log(ctx, `✅ Server running on http://localhost:${port}  [${creds.source}]`);
+          log(ctx, { event: 'server.started', details: { port }, credentialSource: creds.source });
           updateStatusBar(ctx, true, port, creds.source);
           resolve(true);
         });
@@ -58,13 +58,13 @@ async function startServer(ctx) {
       if (ctx.server.listening) {
         bound = true;
         ctx.server.on('error', (err) => {
-          log(ctx, `❌ Server runtime error: ${err.message}`, true);
+          log(ctx, { event: 'server.runtime_error', details: { message: err.message } }, true);
           updateStatusBar(ctx, false);
         });
         break;
       }
     } catch (err) {
-      log(ctx, `❌ Server startup failed: ${err.message}`, true);
+      log(ctx, { event: 'server.startup_failed', details: { message: err.message } }, true);
       updateStatusBar(ctx, false);
       throw err;
     }
@@ -72,7 +72,7 @@ async function startServer(ctx) {
 
   if (!bound) {
     const errMsg = `listen EADDRINUSE: Exhausted ${maxRetries} sequential ports starting at ${basePort}`;
-    log(ctx, `❌ Server failed: ${errMsg}`, true);
+    log(ctx, { event: 'server.failed', details: { message: errMsg } }, true);
     updateStatusBar(ctx, false);
     throw new Error(errMsg);
   }

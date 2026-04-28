@@ -4,7 +4,7 @@
  * GET /v1/debug — Status + credential source info
  */
 
-const { sendJson } = require('../utils');
+const { sendSafeJson } = require('../utils');
 const { getCredentials } = require('../credentials');
 const { LISTED_MODELS } = require('../models');
 const vscode = require('vscode');
@@ -15,10 +15,9 @@ async function handleDebug(ctx, _req, res) {
 
   const port = ctx.server?.address()?.port ?? config.get('port', 11436);
 
-  sendJson(res, 200, {
+  sendSafeJson(res, 200, {
     status: 'running',
     port,
-    sessionId: ctx.sessionId,
     extensionVersion: ctx.extensionVersion,
     credentialSource: creds.source,
     authenticated: !!(creds.apiKey || creds.accessToken),

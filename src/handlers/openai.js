@@ -299,7 +299,10 @@ function anthropicToOpenAI(antResp, completionId) {
 
 async function handleChatCompletions(ctx, req, res) {
   const raw = await readBody(req);
-  verboseLog(ctx, `→ /v1/chat/completions body: ${raw.slice(0, 300)}`);
+  verboseLog(ctx, 'openai.request.received', {
+    path: '/v1/chat/completions',
+    requestId: req.headers['x-request-id'] || null,
+  });
 
   let oaiBody;
   try {
@@ -360,7 +363,12 @@ async function handleChatCompletionsBuffered(ctx, res, antBodyStr, completionId,
 
           // On 401: clear cache and retry once
           if (upRes.statusCode === 401 && !retry) {
-            log(ctx, '⚠️ Received 401 (OpenAI path) — clearing credential cache and retrying');
+            log(ctx, {
+              event: 'openai.buffered.auth.retry',
+              path: url.pathname,
+              status: 401,
+              credentialSource: creds.source,
+            });
             clearCredentialsCache(ctx);
             handleChatCompletionsBuffered(ctx, res, antBodyStr, completionId, true).then(resolve).catch(reject);
             return;
@@ -382,8 +390,8 @@ async function handleChatCompletionsBuffered(ctx, res, antBodyStr, completionId,
             const antResp = JSON.parse(body);
             const oaiResp = anthropicToOpenAI(antResp, completionId);
             sendJson(res, 200, oaiResp);
-          } catch (err) {
-            sendJson(res, 500, { error: { type: 'internal_error', message: err.message } });
+          } catch {
+            sendJson(res, 500, { error: { type: 'internal_error', message: 'Failed to transform upstream response' } });
           }
           resolve();
         });
@@ -436,7 +444,12 @@ async function handleChatCompletionsStreaming(ctx, _req, res, antBodyStr, modelN
       (upRes) => {
         // On 401: clear cache and retry once
         if (upRes.statusCode === 401 && !retry) {
-          log(ctx, '⚠️ Received 401 (streaming) — clearing credential cache and retrying');
+          log(ctx, {
+            event: 'openai.streaming.auth.retry',
+            path: url.pathname,
+            status: 401,
+            credentialSource: creds.source,
+          });
           clearCredentialsCache(ctx);
           upRes.resume(); // drain upstream
           handleChatCompletionsStreaming(ctx, _req, res, antBodyStr, modelName, completionId, true)
@@ -463,7 +476,12 @@ async function handleChatCompletionsStreaming(ctx, _req, res, antBodyStr, modelN
           resolve();
         });
         upRes.on('error', (err) => {
-          log(ctx, `Streaming upstream error: ${err.message}`, true);
+          log(ctx, {
+            event: 'openai.streaming.upstream_error',
+            path: url.pathname,
+            credentialSource: creds.source,
+            details: { message: err.message },
+          }, true);
           if (!res.writableEnded) res.end();
           resolve();
         });

@@ -1,35 +1,33 @@
 'use strict';
 
 const vscode = require('vscode');
-
-// ─────────────────────────────────────────────
-// Logging
-// ─────────────────────────────────────────────
+const { emitLog, sanitizeForResponse } = require('./logging');
 
 function log(ctx, msg, isError = false) {
-  if (typeof msg === 'object') {
-    try {
-      msg = JSON.stringify(msg);
-    } catch {
-      msg = String(msg);
-    }
+  const level = isError ? 'error' : 'info';
+  if (typeof msg === 'object' && msg && msg.event) {
+    emitLog(ctx, level, msg.event, msg);
+    return;
   }
-  const ts = new Date().toISOString().slice(11, 23);
-  if (ctx.outputChannel) ctx.outputChannel.appendLine(`[${ts}] ${msg}`);
-  if (isError) console.error(`[claude-bridge] ${msg}`);
+
+  emitLog(ctx, level, 'message', {
+    details: {
+      message: typeof msg === 'string' ? msg : JSON.stringify(msg),
+    },
+  });
 }
 
-/** Log only when claudeLocalBridge.logRequests is enabled */
-function verboseLog(ctx, msg) {
+function verboseLog(ctx, event, details = {}) {
   const config = vscode.workspace.getConfiguration('claudeLocalBridge');
-  if (config.get('logRequests', false)) {
-    log(ctx, msg);
-  }
-}
+  if (!config.get('logRequests', false)) return;
 
-// ─────────────────────────────────────────────
-// Status Bar
-// ─────────────────────────────────────────────
+  if (typeof event === 'string' && Object.keys(details).length === 0) {
+    emitLog(ctx, 'debug', 'verbose', { details: { message: event } });
+    return;
+  }
+
+  emitLog(ctx, 'debug', event, details);
+}
 
 function updateStatusBar(ctx, running, port, credSource) {
   if (!ctx.statusBarItem) return;
@@ -45,15 +43,16 @@ function updateStatusBar(ctx, running, port, credSource) {
   ctx.statusBarItem.show();
 }
 
-// ─────────────────────────────────────────────
-// HTTP Response Helpers
-// ─────────────────────────────────────────────
-
 function sendJson(res, code, payload) {
   const body = JSON.stringify(payload);
   res.setHeader('Content-Type', 'application/json');
   res.writeHead(code);
   res.end(body);
+}
+
+function sendSafeJson(res, code, payload) {
+  const safePayload = sanitizeForResponse(payload);
+  sendJson(res, code, safePayload);
 }
 
 function readBody(req, maxBytes = 10 * 1024 * 1024) {
@@ -72,10 +71,6 @@ function readBody(req, maxBytes = 10 * 1024 * 1024) {
     req.on('error', reject);
   });
 }
-
-// ─────────────────────────────────────────────
-// OpenAI Response Builders (for /v1/chat/completions)
-// ─────────────────────────────────────────────
 
 function buildStreamChunk(id, model, content, finishReason = null) {
   const delta = content !== null ? { role: 'assistant', content } : {};
@@ -104,6 +99,7 @@ module.exports = {
   verboseLog,
   updateStatusBar,
   sendJson,
+  sendSafeJson,
   readBody,
   buildStreamChunk,
   buildCompletion,

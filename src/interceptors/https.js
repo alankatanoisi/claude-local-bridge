@@ -4,44 +4,16 @@ const https = require('https');
 const { log } = require('../utils');
 const { extractFingerprint, updateFingerprint } = require('../fingerprint');
 
-// ─────────────────────────────────────────────
-// HTTPS + Fetch Interceptor — Auth + Endpoint + Fingerprint Sniffer
-//
-// Patches both https.request() and globalThis.fetch to observe every
-// outgoing HTTPS call made by any VS Code extension in this process.
-// When Claude Code makes a request to an Anthropic endpoint, we capture:
-//   • The auth header (Bearer token or x-api-key)
-//   • The exact target hostname Claude Code is actually calling
-//   • The full request fingerprint (user-agent, stainless headers, etc.)
-//
-// WHY capture the endpoint too:
-//   Claude Code may not call api.anthropic.com directly — it might route
-//   through claude.ai/api or another internal gateway. By capturing the
-//   actual URL, we proxy requests to wherever Claude Code really goes,
-//   just like ag-local-bridge routes through Antigravity's sidecar rather
-//   than directly to Google AI.
-//
-// WHY capture the fingerprint:
-//   Claude Code's request headers (user-agent, billing header, beta flags)
-//   change with each version. By capturing them live, the bridge becomes
-//   self-adapting instead of relying on hardcoded values that rot.
-//
-// NOTE: The Anthropic SDK uses fetch() by default, not https.request,
-// so both interceptors are needed.
-// ─────────────────────────────────────────────
-
 const ANTHROPIC_HOSTNAMES = new Set(['api.anthropic.com', 'claude.ai', 'api.claude.ai']);
 
 function extractAuthFromHeaders(headers) {
   if (!headers) return null;
 
-  // Handle Headers object (fetch API)
   if (typeof headers?.entries === 'function') {
     const entries = Object.fromEntries(headers.entries());
     return extractAuthFromHeaders(entries);
   }
 
-  // Handle array of [key, value] pairs (fetch API internal)
   if (Array.isArray(headers)) {
     return extractAuthFromHeaders(Object.fromEntries(headers));
   }
@@ -59,29 +31,29 @@ function extractAuthFromHeaders(headers) {
 
 function captureAuth(ctx, url, headers) {
   try {
-    let host, port;
+    let host, port, path;
 
     if (typeof url === 'string') {
       const u = new URL(url);
       host = u.hostname;
       port = u.port ? parseInt(u.port) : 443;
+      path = u.pathname;
     } else if (url instanceof URL) {
       host = url.hostname;
       port = url.port ? parseInt(url.port) : 443;
+      path = url.pathname;
     }
 
     if (host && ANTHROPIC_HOSTNAMES.has(host)) {
-      // Capture full fingerprint
       const fingerprint = extractFingerprint(headers);
       if (fingerprint) {
         fingerprint.endpoint = { hostname: host, port };
-        // Extract path from URL for messages path discovery
         if (typeof url === 'string') {
           try {
             const u = new URL(url);
             fingerprint.messagesPath = u.pathname + u.search;
           } catch {
-            // URL parsing failed — skip messages path capture
+            // ignore URL parse failures
           }
         }
         updateFingerprint(ctx, fingerprint);
@@ -93,23 +65,24 @@ function captureAuth(ctx, url, headers) {
         ctx.interceptedToken = cred.token;
         ctx.interceptedHeaderType = cred.headerType;
         ctx.interceptedSource = cred.source;
-
-        // Store the exact host Claude Code is calling so proxy.js mirrors it
         ctx.interceptedHost = host;
         ctx.interceptedPort = port;
-
-        // Clear credential cache so next bridge request picks up the fresh token
         ctx.cachedCredentials = null;
         ctx.credentialsCachedAt = 0;
 
-        const preview = cred.token.slice(0, 8) + '...' + cred.token.slice(-4);
-        log(
-          ctx,
-          wasEmpty
-            ? `🔑 [INTERCEPT] Captured Claude Code auth from ${host} (${cred.source}): ${preview}`
-            : `🔑 [INTERCEPT] Auth rotated from ${host} (${cred.source}): ${preview}`,
-        );
-        log(ctx, `🔍 [FINGERPRINT] Captured ${Object.keys(fingerprint || {}).length} header values from ${host}`);
+        log(ctx, {
+          event: wasEmpty ? 'interceptor.auth.captured' : 'interceptor.auth.rotated',
+          path,
+          credentialSource: cred.source,
+          details: { host, port, headerType: cred.headerType, tokenPreview: cred.token },
+        });
+
+        log(ctx, {
+          event: 'interceptor.fingerprint.captured',
+          path,
+          credentialSource: cred.source,
+          details: { host, headerCount: Object.keys(fingerprint || {}).length },
+        });
       }
     }
   } catch {
@@ -139,17 +112,18 @@ function createInterceptedFetch(ctx) {
 function createInterceptedRequest(ctx) {
   return function interceptedRequest(optionsOrUrl, optionsOrCb, ...rest) {
     try {
-      let host, port, rawHeaders;
+      let host, port, rawHeaders, path;
 
       if (typeof optionsOrUrl === 'string' || optionsOrUrl instanceof URL) {
         const u = new URL(optionsOrUrl.toString());
         host = u.hostname;
         port = u.port ? parseInt(u.port) : 443;
-        // second arg may be options object or callback
+        path = u.pathname;
         rawHeaders = optionsOrCb && typeof optionsOrCb === 'object' ? optionsOrCb.headers : null;
       } else if (optionsOrUrl && typeof optionsOrUrl === 'object') {
         host = optionsOrUrl.hostname || optionsOrUrl.host || '';
         port = parseInt(optionsOrUrl.port) || 443;
+        path = optionsOrUrl.path;
         rawHeaders = optionsOrUrl.headers;
       }
 
@@ -160,22 +134,17 @@ function createInterceptedRequest(ctx) {
           ctx.interceptedToken = cred.token;
           ctx.interceptedHeaderType = cred.headerType;
           ctx.interceptedSource = cred.source;
-
-          // Store the exact host Claude Code is calling so proxy.js mirrors it
           ctx.interceptedHost = host;
           ctx.interceptedPort = port;
-
-          // Clear credential cache so next bridge request picks up the fresh token
           ctx.cachedCredentials = null;
           ctx.credentialsCachedAt = 0;
 
-          const preview = cred.token.slice(0, 8) + '...' + cred.token.slice(-4);
-          log(
-            ctx,
-            wasEmpty
-              ? `🔑 [INTERCEPT] Captured Claude Code auth from ${host} (${cred.source}): ${preview}`
-              : `🔑 [INTERCEPT] Auth rotated from ${host} (${cred.source}): ${preview}`,
-          );
+          log(ctx, {
+            event: wasEmpty ? 'interceptor.auth.captured' : 'interceptor.auth.rotated',
+            path,
+            credentialSource: cred.source,
+            details: { host, port, headerType: cred.headerType, tokenPreview: cred.token },
+          });
         }
       }
     } catch {
@@ -187,18 +156,16 @@ function createInterceptedRequest(ctx) {
 }
 
 function install(ctx) {
-  // Patch https.request
   ctx._originalHttpsRequest = https.request;
   ctx._interceptedRequest = createInterceptedRequest(ctx);
   https.request = ctx._interceptedRequest;
-  log(ctx, '🔌 HTTPS interceptor installed (watching Anthropic endpoints)');
+  log(ctx, { event: 'interceptor.https.installed' });
 
-  // Patch globalThis.fetch (used by Anthropic SDK)
   if (typeof globalThis.fetch === 'function') {
     ctx._originalFetch = globalThis.fetch;
     ctx._interceptedFetch = createInterceptedFetch(ctx);
     globalThis.fetch = ctx._interceptedFetch;
-    log(ctx, '🔌 Fetch interceptor installed (watching Anthropic endpoints)');
+    log(ctx, { event: 'interceptor.fetch.installed' });
   }
 }
 
@@ -215,7 +182,7 @@ function uninstall(ctx) {
   ctx._originalFetch = null;
   ctx._interceptedFetch = null;
 
-  log(ctx, '🔌 Interceptors removed');
+  log(ctx, { event: 'interceptor.uninstalled' });
 }
 
 module.exports = { install, uninstall };

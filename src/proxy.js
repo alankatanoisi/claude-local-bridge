@@ -6,29 +6,10 @@ const vscode = require('vscode');
 const { getCredentials, clearCredentialsCache, buildAuthHeaders } = require('./credentials');
 const { log, verboseLog } = require('./utils');
 
-// ─────────────────────────────────────────────
-// Core Proxy
-// Forwards a request to api.anthropic.com and pipes
-// the response (streaming or buffered) back to the caller.
-// ─────────────────────────────────────────────
-
-/**
- * Proxy a request to the Anthropic API.
- *
- * @param {object}    ctx        Bridge context
- * @param {object}    res        Node.js ServerResponse to write into
- * @param {string}    apiPath    e.g. '/v1/messages'
- * @param {string}    bodyStr    JSON body string
- * @param {boolean}   [retry]    Internal — true when retrying after a 401
- * @returns {Promise<void>}
- */
 async function proxyToAnthropic(ctx, res, apiPath, bodyStr, retry = false) {
   const config = vscode.workspace.getConfiguration('claudeLocalBridge');
   const configuredBaseUrl = config.get('anthropicBaseUrl', 'https://api.anthropic.com');
 
-  // Prefer the host we observed Claude Code actually calling.
-  // This mirrors ag-local-bridge's pattern: route through the same endpoint
-  // the authenticated client uses, rather than assuming api.anthropic.com.
   const baseUrl = ctx.interceptedHost
     ? `https://${ctx.interceptedHost}${ctx.interceptedPort && ctx.interceptedPort !== 443 ? `:${ctx.interceptedPort}` : ''}`
     : configuredBaseUrl;
@@ -37,7 +18,11 @@ async function proxyToAnthropic(ctx, res, apiPath, bodyStr, retry = false) {
   const creds = getCredentials(ctx);
   const authHeaders = buildAuthHeaders(ctx, creds);
 
-  verboseLog(ctx, `→ ${url.hostname}${url.pathname}  model=${tryExtractModel(bodyStr)}  source=${creds.source}`);
+  verboseLog(ctx, 'proxy.request', {
+    path: url.pathname,
+    credentialSource: creds.source,
+    details: { hostname: url.hostname, model: tryExtractModel(bodyStr), retry },
+  });
 
   const bodyBuf = Buffer.from(bodyStr, 'utf8');
 
@@ -55,19 +40,29 @@ async function proxyToAnthropic(ctx, res, apiPath, bodyStr, retry = false) {
 
   return new Promise((resolve, reject) => {
     const upReq = https.request(reqOptions, (upRes) => {
-      verboseLog(ctx, `← ${upRes.statusCode} ${url.pathname}`);
+      const requestId = upRes.headers['x-request-id'] || null;
+      verboseLog(ctx, 'proxy.response', {
+        path: url.pathname,
+        status: upRes.statusCode,
+        requestId,
+        credentialSource: creds.source,
+      });
 
-      // On 401: clear cache and retry once
       if (upRes.statusCode === 401 && !retry) {
-        log(ctx, '⚠️ Received 401 — clearing credential cache and retrying');
+        log(ctx, {
+          event: 'proxy.auth.retry',
+          path: url.pathname,
+          status: 401,
+          requestId,
+          credentialSource: creds.source,
+          details: { reason: 'upstream_401' },
+        });
         clearCredentialsCache(ctx);
-        // Drain the upstream body before retrying
         upRes.resume();
         proxyToAnthropic(ctx, res, apiPath, bodyStr, true).then(resolve).catch(reject);
         return;
       }
 
-      // Forward status and headers verbatim
       const forwardHeaders = {};
       const passthroughHeaders = [
         'content-type',
@@ -87,7 +82,6 @@ async function proxyToAnthropic(ctx, res, apiPath, bodyStr, retry = false) {
         res.writeHead(upRes.statusCode, forwardHeaders);
       }
 
-      // Pipe upstream → client (true streaming, no buffering)
       upRes.on('data', (chunk) => {
         if (!res.writableEnded) res.write(chunk);
       });
@@ -96,19 +90,35 @@ async function proxyToAnthropic(ctx, res, apiPath, bodyStr, retry = false) {
         resolve();
       });
       upRes.on('error', (err) => {
-        log(ctx, `Upstream response error: ${err.message}`, true);
+        log(ctx, {
+          event: 'proxy.upstream.response_error',
+          path: url.pathname,
+          status: upRes.statusCode,
+          requestId,
+          credentialSource: creds.source,
+          details: { message: err.message },
+        }, true);
         if (!res.writableEnded) res.end();
         resolve();
       });
     });
 
     upReq.on('error', (err) => {
-      log(ctx, `Upstream request error: ${err.message}`, true);
+      log(ctx, {
+        event: 'proxy.upstream.request_error',
+        path: url.pathname,
+        credentialSource: creds.source,
+        details: { message: err.message },
+      }, true);
       reject(err);
     });
 
     upReq.on('timeout', () => {
-      log(ctx, 'Upstream request timed out', true);
+      log(ctx, {
+        event: 'proxy.upstream.timeout',
+        path: url.pathname,
+        credentialSource: creds.source,
+      }, true);
       upReq.destroy(new Error('Upstream request timed out'));
     });
 
@@ -117,7 +127,6 @@ async function proxyToAnthropic(ctx, res, apiPath, bodyStr, retry = false) {
   });
 }
 
-/** Best-effort: extract model name from a JSON body string for logging */
 function tryExtractModel(bodyStr) {
   try {
     return JSON.parse(bodyStr).model || 'unknown';

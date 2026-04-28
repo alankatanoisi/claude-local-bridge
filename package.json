@@ -71,6 +71,46 @@
           "type": "boolean",
           "default": false,
           "description": "Enable verbose request/response logging to the Output channel"
+        },
+        "claudeLocalBridge.logFormat": {
+          "type": "string",
+          "enum": [
+            "text",
+            "json"
+          ],
+          "default": "text",
+          "description": "Logging output format for the Output channel"
+        },
+        "claudeLocalBridge.redactionPolicy": {
+          "type": "string",
+          "enum": [
+            "strict",
+            "balanced"
+          ],
+          "default": "balanced",
+          "description": "Controls how aggressively sensitive values are masked in logs and debug responses"
+        },
+        "claudeLocalBridge.redactedFields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "authorization",
+            "x-api-key",
+            "api-key",
+            "token",
+            "access_token",
+            "refresh_token",
+            "sessionid",
+            "session-id",
+            "session_id",
+            "cookie",
+            "set-cookie",
+            "x-anthropic-billing-header",
+            "billing"
+          ],
+          "description": "Header/body keys to redact from logs and debug/error responses"
         }
       }
     },

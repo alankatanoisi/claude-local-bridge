@@ -16,6 +16,23 @@ const config = {
   apiKey: '',
   defaultModel: 'claude-sonnet-4-5',
   logRequests: false,
+  logFormat: 'text',
+  redactionPolicy: 'balanced',
+  redactedFields: [
+    'authorization',
+    'x-api-key',
+    'api-key',
+    'token',
+    'access_token',
+    'refresh_token',
+    'sessionid',
+    'session-id',
+    'session_id',
+    'cookie',
+    'set-cookie',
+    'x-anthropic-billing-header',
+    'billing',
+  ],
 };
 
 const vscode = {
@@ -62,6 +79,17 @@ const _originalLoad = Module._load;
 Module._load = function (request, parent, isMain) {
   if (request === 'vscode') return vscode;
   return _originalLoad.call(this, request, parent, isMain);
+};
+
+vscode.__setConfig = (updates) => Object.assign(config, updates);
+vscode.__resetConfig = () => {
+  config.port = 11436;
+  config.anthropicBaseUrl = 'https://api.anthropic.com';
+  config.apiKey = '';
+  config.defaultModel = 'claude-sonnet-4-5';
+  config.logRequests = false;
+  config.logFormat = 'text';
+  config.redactionPolicy = 'balanced';
 };
 
 module.exports = vscode;

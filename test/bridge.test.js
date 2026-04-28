@@ -175,3 +175,78 @@ function rewireCredentials({ keychainFails = false, fileMissing = false } = {}) 
     },
   };
 }
+
+describe('logging redaction + schema', () => {
+  before(() => {
+    require('./__mocks__/vscode');
+  });
+
+  it('masks known sensitive keys', () => {
+    const { redactHeaders } = require('../src/logging');
+    const redacted = redactHeaders(
+      {
+        authorization: 'Bearer sk-secret-token-123',
+        'x-api-key': 'sk-api-abc-123',
+        cookie: 'sessionid=abc123; other=ok',
+        'x-anthropic-billing-header': 'cc_version=2.1.119;cch=abcdef;',
+      },
+      { redactionPolicy: 'balanced' },
+    );
+
+    assert.equal(redacted.authorization.includes('sk-secret-token-123'), false);
+    assert.equal(redacted['x-api-key'].includes('sk-api-abc-123'), false);
+    assert.equal(redacted.cookie.includes('sessionid=abc123'), false);
+    assert.equal(redacted['x-anthropic-billing-header'].includes('cch=abcdef'), false);
+  });
+
+  it('strict mode prevents plaintext token leakage', () => {
+    const { redactAny } = require('../src/logging');
+    const payload = {
+      token: 'tok-plain-secret',
+      nested: { access_token: 'oauth-very-secret' },
+      headers: { authorization: 'Bearer top-secret' },
+    };
+
+    const strict = redactAny(payload, { redactionPolicy: 'strict' });
+    const asText = JSON.stringify(strict);
+
+    assert.equal(asText.includes('tok-plain-secret'), false);
+    assert.equal(asText.includes('oauth-very-secret'), false);
+    assert.equal(asText.includes('top-secret'), false);
+  });
+
+  it('emits stable JSON schema for ingestion', () => {
+    const vscode = require('./__mocks__/vscode');
+    const { emitLog } = require('../src/logging');
+
+    vscode.__setConfig({ logFormat: 'json', redactionPolicy: 'strict' });
+    const lines = [];
+    const ctx = { outputChannel: { appendLine: (line) => lines.push(line) } };
+
+    emitLog(ctx, 'info', 'unit.test', {
+      path: '/v1/messages',
+      requestId: 'req_123',
+      status: 200,
+      credentialSource: 'env:ANTHROPIC_API_KEY',
+      details: { authorization: 'Bearer my-raw-secret' },
+    });
+
+    assert.equal(lines.length, 1);
+    const parsed = JSON.parse(lines[0]);
+    assert.deepEqual(Object.keys(parsed), [
+      'timestamp',
+      'level',
+      'event',
+      'requestId',
+      'path',
+      'status',
+      'credentialSource',
+      'details',
+    ]);
+    assert.equal(parsed.level, 'info');
+    assert.equal(parsed.event, 'unit.test');
+    assert.equal(parsed.details.authorization.includes('my-raw-secret'), false);
+
+    vscode.__resetConfig();
+  });
+});
