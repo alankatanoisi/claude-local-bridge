@@ -17,14 +17,18 @@
  * Keys should be lowercase. Values are the exact IDs Anthropic accepts.
  */
 const ALIASES = {
+  // Latest generation (4.7 / 4.6)
+  'claude-opus-4-7': 'claude-opus-4-7',
+  'claude-sonnet-4-6': 'claude-sonnet-4-6',
+
   // Current generation (4.5)
   'claude-opus-4-5': 'claude-opus-4-5',
   'claude-sonnet-4-5': 'claude-sonnet-4-5',
   'claude-haiku-4-5': 'claude-haiku-4-5',
 
-  // Shorthand → current default
-  'claude-opus-4': 'claude-opus-4-5',
-  'claude-sonnet-4': 'claude-sonnet-4-5',
+  // Shorthand → latest
+  'claude-opus-4': 'claude-opus-4-7',
+  'claude-sonnet-4': 'claude-sonnet-4-6',
   'claude-haiku-4': 'claude-haiku-4-5',
 
   // Previous gen (3.5) — specific dated
@@ -37,25 +41,39 @@ const ALIASES = {
   'claude-3-haiku': 'claude-3-haiku-20240307',
 
   // Generic "claude" → current default
-  claude: 'claude-sonnet-4-5',
+  claude: 'claude-sonnet-4-6',
 
   // OpenAI model names — mapped for tools that send gpt-* names
-  'gpt-4o': 'claude-sonnet-4-5',
+  'gpt-4o': 'claude-sonnet-4-6',
   'gpt-4o-mini': 'claude-haiku-4-5',
-  'gpt-4': 'claude-sonnet-4-5',
-  'gpt-4-turbo': 'claude-sonnet-4-5',
+  'gpt-4': 'claude-sonnet-4-6',
+  'gpt-4-turbo': 'claude-sonnet-4-6',
   'gpt-3.5-turbo': 'claude-haiku-4-5',
-  'o1': 'claude-opus-4-5',
-  'o1-mini': 'claude-sonnet-4-5',
-  'o3-mini': 'claude-sonnet-4-5',
+  'o1': 'claude-opus-4-7',
+  'o1-mini': 'claude-sonnet-4-6',
+  'o3-mini': 'claude-sonnet-4-6',
 
   // ollama / localai common shims
-  'llama3': 'claude-sonnet-4-5',
-  'mistral': 'claude-sonnet-4-5',
+  'llama3': 'claude-sonnet-4-6',
+  'mistral': 'claude-sonnet-4-6',
 };
 
 /** Models advertised in GET /v1/models */
 const LISTED_MODELS = [
+  {
+    id: 'claude-opus-4-7',
+    name: 'Claude Opus 4.7',
+    owned_by: 'anthropic',
+    context_length: 200000,
+    output_length: 32000,
+  },
+  {
+    id: 'claude-sonnet-4-6',
+    name: 'Claude Sonnet 4.6',
+    owned_by: 'anthropic',
+    context_length: 200000,
+    output_length: 64000,
+  },
   {
     id: 'claude-opus-4-5',
     name: 'Claude Opus 4.5',
@@ -114,7 +132,7 @@ const LISTED_MODELS = [
   },
 ];
 
-const DEFAULT_MODEL = 'claude-sonnet-4-5';
+const DEFAULT_MODEL = 'claude-sonnet-4-6';
 
 /**
  * Resolve a model name to the canonical Anthropic model ID.
