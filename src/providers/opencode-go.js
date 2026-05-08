@@ -47,7 +47,8 @@ const STATIC_OPENCODE_GO_MODELS = [
 
 function modelSeed(upstreamId, displayName, wireApi) {
   return {
-    id: `${OPENCODE_GO_PROVIDER_ID}/${upstreamId}`,
+    id: buildGatewayRouteId(upstreamId),
+    aliases: [buildLegacyRouteId(upstreamId)],
     upstream_model: upstreamId,
     name: `OpenCode Go ${displayName}`,
     owned_by: 'opencode',
@@ -59,7 +60,8 @@ function modelSeed(upstreamId, displayName, wireApi) {
 }
 
 function isOpenCodeGoModel(modelId) {
-  return typeof modelId === 'string' && modelId.startsWith(`${OPENCODE_GO_PROVIDER_ID}/`);
+  if (typeof modelId !== 'string') return false;
+  return modelId.startsWith(`${OPENCODE_GO_PROVIDER_ID}/`) || modelId.startsWith('anthropic/claude-opencode-go-');
 }
 
 function getOpenCodeGoSettings() {
@@ -117,7 +119,7 @@ async function getOpenCodeGoModels(ctx) {
 }
 
 function findOpenCodeGoModel(modelId, models = STATIC_OPENCODE_GO_MODELS) {
-  return models.find((model) => model.id === modelId) || null;
+  return models.find((model) => model.id === modelId || model.aliases?.includes(modelId)) || null;
 }
 
 async function handleAnthropicMessagesToOpenCodeGo(ctx, req, res, antBody) {
@@ -431,7 +433,8 @@ function normalizeDiscoveredModel(item) {
   const seed = STATIC_OPENCODE_GO_MODELS.find((model) => model.upstream_model === upstreamId);
 
   return {
-    id: `${OPENCODE_GO_PROVIDER_ID}/${upstreamId}`,
+    id: buildGatewayRouteId(upstreamId),
+    aliases: [buildLegacyRouteId(upstreamId)],
     upstream_model: upstreamId,
     name: seed?.name || item.name || `OpenCode Go ${upstreamId}`,
     owned_by: item.owned_by || 'opencode',
@@ -459,7 +462,23 @@ function stripOpenCodeGoPrefix(value) {
   if (value.startsWith(`${OPENCODE_GO_PROVIDER_ID}/`)) {
     return value.slice(OPENCODE_GO_PROVIDER_ID.length + 1);
   }
+  if (value.startsWith('anthropic/claude-opencode-go-')) {
+    return value
+      .slice('anthropic/claude-opencode-go-'.length)
+      .replace(/--/g, '.');
+  }
   return value;
+}
+
+function buildLegacyRouteId(upstreamId) {
+  return `${OPENCODE_GO_PROVIDER_ID}/${upstreamId}`;
+}
+
+function buildGatewayRouteId(upstreamId) {
+  // Claude Cowork validates gateway model ids and expects an Anthropic-shaped route.
+  // We expose Anthropic-looking ids while preserving the original upstream model
+  // name in `upstream_model` and a backward-compatible alias.
+  return `anthropic/claude-opencode-go-${upstreamId.replace(/\./g, '--')}`;
 }
 
 function buildOpenCodeGoHeaders(settings) {

@@ -476,6 +476,12 @@ function createOpenAIToAnthropicStreamConverter(res, advertisedModel) {
           continue;
         }
 
+        // Anthropic SSE streams always begin with `message_start`.
+        // Some OpenAI-compatible upstreams emit only a terminal chunk with a
+        // finish reason and no text delta. If we waited for content before
+        // sending `message_start`, Cowork would see an incomplete stream shape.
+        ensureMessageStart();
+
         const choice = parsed.choices?.[0];
         const delta = choice?.delta || {};
 

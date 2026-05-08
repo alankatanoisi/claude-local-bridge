@@ -200,10 +200,14 @@ In Claude Desktop:
 If your Cowork build does not auto-discover models from `/v1/models`, set
 `inferenceModels` manually to ids such as:
 
-- `opencode-go/deepseek-v4-pro`
-- `opencode-go/deepseek-v4-flash`
-- `opencode-go/kimi-k2.6`
-- `opencode-go/glm-5.1`
+- `anthropic/claude-opencode-go-deepseek-v4-pro`
+- `anthropic/claude-opencode-go-deepseek-v4-flash`
+- `anthropic/claude-opencode-go-kimi-k2--6`
+- `anthropic/claude-opencode-go-glm-5--1`
+
+Claude Cowork validates gateway model ids and expects them to look Anthropic-shaped.
+The bridge therefore advertises Anthropic-style route ids while preserving the
+real OpenCode Go upstream model names internally.
 
 ### OpenCode Go models currently wired in Phase 1
 

@@ -100,6 +100,7 @@ describe('server routing', () => {
 describe('OpenCode Go provider', () => {
   it('recognizes provider-prefixed models', () => {
     const { isOpenCodeGoModel } = require('../src/providers/opencode-go');
+    assert.equal(isOpenCodeGoModel('anthropic/claude-opencode-go-deepseek-v4-pro'), true);
     assert.equal(isOpenCodeGoModel('opencode-go/deepseek-v4-pro'), true);
     assert.equal(isOpenCodeGoModel('claude-sonnet-4-6'), false);
   });
@@ -108,8 +109,8 @@ describe('OpenCode Go provider', () => {
     const { getOpenCodeGoModels } = require('../src/providers/opencode-go');
     const ctx = makeCtx();
     const models = await getOpenCodeGoModels(ctx);
-    assert.ok(models.find((model) => model.id === 'opencode-go/deepseek-v4-pro'));
-    assert.ok(models.find((model) => model.id === 'opencode-go/minimax-m2.7'));
+    assert.ok(models.find((model) => model.id === 'anthropic/claude-opencode-go-deepseek-v4-pro'));
+    assert.ok(models.find((model) => model.id === 'anthropic/claude-opencode-go-minimax-m2--7'));
   });
 });
 
@@ -118,7 +119,7 @@ describe('Anthropic/OpenAI translators', () => {
     const { anthropicToOpenAI } = require('../src/translators/anthropic-openai');
     const result = anthropicToOpenAI(
       {
-        model: 'opencode-go/deepseek-v4-pro',
+        model: 'anthropic/claude-opencode-go-deepseek-v4-pro',
         system: 'You are helpful.',
         max_tokens: 123,
         messages: [
@@ -135,7 +136,7 @@ describe('Anthropic/OpenAI translators', () => {
           },
         ],
       },
-      (model) => model.replace('opencode-go/', ''),
+      (model) => model.replace('anthropic/claude-opencode-go-', '').replace(/--/g, '.'),
     );
 
     assert.equal(result.model, 'deepseek-v4-pro');
@@ -162,10 +163,10 @@ describe('Anthropic/OpenAI translators', () => {
           completion_tokens: 4,
         },
       },
-      'opencode-go/deepseek-v4-pro',
+      'anthropic/claude-opencode-go-deepseek-v4-pro',
     );
 
-    assert.equal(result.model, 'opencode-go/deepseek-v4-pro');
+    assert.equal(result.model, 'anthropic/claude-opencode-go-deepseek-v4-pro');
     assert.equal(result.content[0].text, 'hello');
     assert.equal(result.stop_reason, 'end_turn');
   });
