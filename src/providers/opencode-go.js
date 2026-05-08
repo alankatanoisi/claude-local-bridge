@@ -481,7 +481,9 @@ function buildOpenCodeGoHeaders(settings) {
 }
 
 function buildOpenCodeGoUrl(pathname, settings = getOpenCodeGoSettings()) {
-  return new URL(pathname, settings.baseUrl.endsWith('/') ? settings.baseUrl : settings.baseUrl + '/');
+  const base = settings.baseUrl.endsWith('/') ? settings.baseUrl : settings.baseUrl + '/';
+  const relativePath = pathname.replace(/^\/+/, '');
+  return new URL(relativePath, base);
 }
 
 function prepareSseResponse(res) {
