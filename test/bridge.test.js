@@ -64,9 +64,9 @@ describe('models', () => {
     assert.equal(resolveModel('claude-some-future-model'), 'claude-some-future-model');
   });
 
-  it('maps gpt-4o to claude-sonnet-4-5', () => {
+  it('maps gpt-4o to claude-sonnet-4-6', () => {
     const { resolveModel } = require('../src/models');
-    assert.equal(resolveModel('gpt-4o'), 'claude-sonnet-4-5');
+    assert.equal(resolveModel('gpt-4o'), 'claude-sonnet-4-6');
   });
 
   it('returns default model for undefined', () => {
@@ -81,6 +81,11 @@ describe('server routing', () => {
     assert.equal(isLocalhostOrigin('http://localhost:3000'), true);
   });
 
+  it('isLocalhostOrigin accepts https localhost', () => {
+    const { isLocalhostOrigin } = require('../src/server');
+    assert.equal(isLocalhostOrigin('https://localhost:11443'), true);
+  });
+
   it('isLocalhostOrigin accepts 127.0.0.1', () => {
     const { isLocalhostOrigin } = require('../src/server');
     assert.equal(isLocalhostOrigin('http://127.0.0.1:8080'), true);
@@ -89,6 +94,80 @@ describe('server routing', () => {
   it('isLocalhostOrigin rejects external origin', () => {
     const { isLocalhostOrigin } = require('../src/server');
     assert.equal(isLocalhostOrigin('https://evil.com'), false);
+  });
+});
+
+describe('OpenCode Go provider', () => {
+  it('recognizes provider-prefixed models', () => {
+    const { isOpenCodeGoModel } = require('../src/providers/opencode-go');
+    assert.equal(isOpenCodeGoModel('opencode-go/deepseek-v4-pro'), true);
+    assert.equal(isOpenCodeGoModel('claude-sonnet-4-6'), false);
+  });
+
+  it('exposes static fallback models', async () => {
+    const { getOpenCodeGoModels } = require('../src/providers/opencode-go');
+    const ctx = makeCtx();
+    const models = await getOpenCodeGoModels(ctx);
+    assert.ok(models.find((model) => model.id === 'opencode-go/deepseek-v4-pro'));
+    assert.ok(models.find((model) => model.id === 'opencode-go/minimax-m2.7'));
+  });
+});
+
+describe('Anthropic/OpenAI translators', () => {
+  it('converts Anthropic requests to OpenAI chat format', () => {
+    const { anthropicToOpenAI } = require('../src/translators/anthropic-openai');
+    const result = anthropicToOpenAI(
+      {
+        model: 'opencode-go/deepseek-v4-pro',
+        system: 'You are helpful.',
+        max_tokens: 123,
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'text', text: 'hello' }],
+          },
+        ],
+        tools: [
+          {
+            name: 'lookup_weather',
+            description: 'Look up the weather',
+            input_schema: { type: 'object', properties: { city: { type: 'string' } } },
+          },
+        ],
+      },
+      (model) => model.replace('opencode-go/', ''),
+    );
+
+    assert.equal(result.model, 'deepseek-v4-pro');
+    assert.equal(result.messages[0].role, 'system');
+    assert.equal(result.messages[1].role, 'user');
+    assert.equal(result.tools[0].function.name, 'lookup_weather');
+  });
+
+  it('converts OpenAI responses back to Anthropic message format', () => {
+    const { openAIResponseToAnthropic } = require('../src/translators/anthropic-openai');
+    const result = openAIResponseToAnthropic(
+      {
+        choices: [
+          {
+            finish_reason: 'stop',
+            message: {
+              role: 'assistant',
+              content: 'hello',
+            },
+          },
+        ],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 4,
+        },
+      },
+      'opencode-go/deepseek-v4-pro',
+    );
+
+    assert.equal(result.model, 'opencode-go/deepseek-v4-pro');
+    assert.equal(result.content[0].text, 'hello');
+    assert.equal(result.stop_reason, 'end_turn');
   });
 });
 
@@ -134,6 +213,7 @@ function makeCtx() {
     cachedCredentials: null,
     credentialsCachedAt: 0,
     CREDS_CACHE_TTL: 300_000,
+    providerModelCache: null,
   };
 }
 

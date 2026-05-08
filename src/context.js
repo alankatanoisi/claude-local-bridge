@@ -17,11 +17,16 @@ function createContext() {
     // HTTP server
     /** @type {import('http').Server | null} */
     server: null,
+    /** @type {import('https').Server | null} */
+    httpsServer: null,
 
     // Credential cache
     cachedCredentials: null,
     credentialsCachedAt: 0,
     CREDS_CACHE_TTL: 300_000, // 5 minutes
+
+    // Provider catalog cache
+    providerModelCache: null,
 
     // Intercepted credentials (from Claude Code's live outgoing HTTPS requests)
     interceptedToken: null,

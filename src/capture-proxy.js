@@ -2,6 +2,7 @@
 
 const http = require('http');
 const https = require('https');
+const net = require('net');
 const { log } = require('./utils');
 
 // ─────────────────────────────────────────────
@@ -136,57 +137,56 @@ function handleProxyRequest(ctx, req, res) {
 function handleConnect(ctx, req, clientSocket, head) {
   const { hostname, port } = parseHost(req.url);
 
-  // Capture auth info from CONNECT target
+  // `CONNECT` is how an HTTP proxy carries HTTPS traffic.
+  // After the tunnel is established, the bytes are TLS-encrypted end-to-end.
+  // That means we can tunnel the traffic, but we cannot reliably read auth
+  // headers out of the encrypted stream unless we switch to a real MITM proxy.
+  // So for CONNECT we focus on making the tunnel work correctly and log what
+  // target was used for debugging.
   if (ANTHROPIC_HOSTNAMES.has(hostname)) {
     log(ctx, `🔌 [PROXY] CONNECT tunnel to ${hostname}:${port}`);
   }
 
-  const proxyReq = https.connect({
+  // Use a plain TCP socket here.
+  // `https.connect()` does not exist in Node, and even if it did, wrapping the
+  // upstream side in TLS would be the wrong thing for an HTTP CONNECT tunnel.
+  // The client and the upstream server must perform the TLS handshake directly
+  // through this raw socket.
+  const upstreamSocket = net.connect({
     host: hostname,
     port: port || 443,
   });
 
-  proxyReq.on('connect', (proxyRes, proxySocket) => {
-    // Establish tunnel
+  upstreamSocket.on('connect', () => {
+    // Tell the proxy client that the tunnel is ready.
     clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
 
-    // Pipe data bidirectionally
-    proxySocket.on('data', (data) => clientSocket.write(data));
-    clientSocket.on('data', (data) => {
-      // Try to capture auth from the first request in the tunnel
-      if (ANTHROPIC_HOSTNAMES.has(hostname) && !ctx.interceptedToken) {
-        const text = data.toString('utf8', 0, Math.min(data.length, 8192));
-        const authMatch = text.match(/authorization:\s*bearer\s*([^\r\n]+)/i);
-        const keyMatch = text.match(/x-api-key:\s*([^\r\n]+)/i);
-        if (authMatch) {
-          captureAuthFromHeaders(ctx, { authorization: `Bearer ${authMatch[1].trim()}` }, hostname, port);
-        } else if (keyMatch) {
-          captureAuthFromHeaders(ctx, { 'x-api-key': keyMatch[1].trim() }, hostname, port);
-        }
-      }
-      proxySocket.write(data);
-    });
+    // If Node gave us any already-read bytes after the CONNECT line, forward
+    // them first so the TLS handshake can continue without losing data.
+    if (head && head.length > 0) {
+      upstreamSocket.write(head);
+    }
 
-    proxySocket.on('error', (err) => {
+    // From this point on, this is just a byte tunnel in both directions.
+    clientSocket.pipe(upstreamSocket);
+    upstreamSocket.pipe(clientSocket);
+
+    upstreamSocket.on('error', (err) => {
       log(ctx, `Proxy socket error: ${err.message}`, true);
       clientSocket.end();
     });
 
     clientSocket.on('error', (err) => {
       log(ctx, `Client socket error: ${err.message}`, true);
-      proxySocket.end();
+      upstreamSocket.end();
     });
   });
 
-  proxyReq.on('error', (err) => {
+  upstreamSocket.on('error', (err) => {
     log(ctx, `CONNECT error: ${err.message}`, true);
     clientSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
     clientSocket.end();
   });
-
-  if (head && head.length > 0) {
-    proxyReq.write(head);
-  }
 }
 
 function parseHost(hostStr) {

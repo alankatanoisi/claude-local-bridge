@@ -12,6 +12,7 @@ const { readBody, sendJson, verboseLog, log } = require('../utils');
 const { resolveModel } = require('../models');
 const { proxyToAnthropic } = require('../proxy');
 const { getCredentials, prependClaudeCodeSystem, messagesPathFor } = require('../credentials');
+const { isOpenCodeGoModel, handleAnthropicMessagesToOpenCodeGo } = require('../providers/opencode-go');
 
 const vscode = require('vscode');
 
@@ -48,6 +49,13 @@ async function handleAnthropicMessages(ctx, req, res) {
   } catch {
     sendJson(res, 400, { error: { type: 'invalid_request_error', message: 'Invalid JSON body' } });
     return;
+  }
+
+  // Provider-backed models keep their provider prefix so we can route them to
+  // the right adapter. We should not run them through the local Anthropic alias
+  // table because that would strip away the provider identity.
+  if (isOpenCodeGoModel(body.model)) {
+    return handleAnthropicMessagesToOpenCodeGo(ctx, req, res, body);
   }
 
   // Resolve model name (with alias table + passthrough)

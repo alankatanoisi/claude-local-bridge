@@ -109,7 +109,7 @@ VS Code settings (`claudeLocalBridge.*`):
 - `port` (default: `11437`) — HTTP server port
 - `anthropicBaseUrl` (default: `https://api.anthropic.com`) — Anthropic API base URL
 - `apiKey` (default: `""`) — Manual API key fallback (lowest priority)
-- `defaultModel` (default: `claude-sonnet-4-5`) — Default model for requests
+- `defaultModel` (default: `claude-sonnet-4-6`) — Default model for requests
 - `logRequests` (default: `false`) — Verbose request/response logging
 
 ## Common Development Tasks

@@ -11,10 +11,18 @@
 const Module = require('module');
 
 const config = {
-  port: 11436,
+  port: 11437,
+  httpsEnabled: false,
+  httpsPort: 11443,
+  httpsKeyFile: '',
+  httpsCertFile: '',
   anthropicBaseUrl: 'https://api.anthropic.com',
   apiKey: '',
-  defaultModel: 'claude-sonnet-4-5',
+  defaultModel: 'claude-sonnet-4-6',
+  modelCatalog: 'anthropic',
+  opencodeGoApiKey: '',
+  opencodeGoBaseUrl: 'https://opencode.ai/zen/go',
+  opencodeGoAuthScheme: 'bearer',
   logRequests: false,
 };
 

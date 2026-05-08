@@ -176,7 +176,7 @@ function probeEndpoint(token, headerType, hostname, path) {
   if (!found) {
     console.log(`\n⚠️  No endpoint accepted the OAuth token directly.`);
     console.log(`   → The VS Code interceptor will find the real endpoint when Claude Code makes a call.`);
-    console.log(`   → In VS Code: press F5, use Claude Code, then: curl http://localhost:11436/v1/debug | jq .interceptedHost\n`);
+    console.log(`   → In VS Code: press F5, use Claude Code, then: curl http://localhost:11437/v1/debug | jq .interceptedHost\n`);
   }
 
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');

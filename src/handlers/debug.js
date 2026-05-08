@@ -6,18 +6,25 @@
 
 const { sendJson } = require('../utils');
 const { getCredentials } = require('../credentials');
-const { LISTED_MODELS } = require('../models');
+const { getAdvertisedModels } = require('../catalog');
+const { getOpenCodeGoModels, shouldAdvertiseOpenCodeGo } = require('../providers/opencode-go');
 const vscode = require('vscode');
 
 async function handleDebug(ctx, _req, res) {
   const config = vscode.workspace.getConfiguration('claudeLocalBridge');
   const creds = getCredentials(ctx);
+  const advertisedModels = await getAdvertisedModels(ctx);
+  const openCodeGoModels = shouldAdvertiseOpenCodeGo(ctx) ? await getOpenCodeGoModels(ctx) : [];
 
-  const port = ctx.server?.address()?.port ?? config.get('port', 11436);
+  const port = ctx.server?.address()?.port ?? config.get('port', 11437);
+  const httpsPort = ctx.httpsServer?.address()?.port ?? null;
 
   sendJson(res, 200, {
     status: 'running',
     port,
+    httpBaseUrl: `http://127.0.0.1:${port}`,
+    httpsPort,
+    httpsBaseUrl: httpsPort ? `https://127.0.0.1:${httpsPort}` : null,
     sessionId: ctx.sessionId,
     extensionVersion: ctx.extensionVersion,
     credentialSource: creds.source,
@@ -35,7 +42,14 @@ async function handleDebug(ctx, _req, res) {
       : null,
     captureProxy: ctx.captureProxy ? `http://localhost:11439` : null,
     anthropicBaseUrl: config.get('anthropicBaseUrl', 'https://api.anthropic.com'),
-    availableModels: LISTED_MODELS.map((m) => m.id),
+    modelCatalog: config.get('modelCatalog', 'anthropic'),
+    availableModels: advertisedModels.map((m) => m.id),
+    providerSummary: {
+      openCodeGoConfigured: Boolean(
+        process.env.CLAUDE_LOCAL_BRIDGE_OPENCODE_GO_API_KEY || config.get('opencodeGoApiKey', ''),
+      ),
+      openCodeGoModels: openCodeGoModels.map((m) => m.id),
+    },
   });
 }
 

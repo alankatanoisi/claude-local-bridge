@@ -52,6 +52,26 @@
           "default": 11437,
           "description": "Port for the local HTTP API server"
         },
+        "claudeLocalBridge.httpsEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also serve the bridge over HTTPS for Claude Cowork / third-party gateway testing"
+        },
+        "claudeLocalBridge.httpsPort": {
+          "type": "number",
+          "default": 11443,
+          "description": "Port for the optional local HTTPS server"
+        },
+        "claudeLocalBridge.httpsKeyFile": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the TLS private key file used by the optional HTTPS server"
+        },
+        "claudeLocalBridge.httpsCertFile": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the TLS certificate file used by the optional HTTPS server"
+        },
         "claudeLocalBridge.anthropicBaseUrl": {
           "type": "string",
           "default": "https://api.anthropic.com",
@@ -64,8 +84,37 @@
         },
         "claudeLocalBridge.defaultModel": {
           "type": "string",
-          "default": "claude-sonnet-4-5",
+          "default": "claude-sonnet-4-6",
           "description": "Default model to use when none is specified in the request"
+        },
+        "claudeLocalBridge.modelCatalog": {
+          "type": "string",
+          "enum": [
+            "anthropic",
+            "opencode-go",
+            "hybrid"
+          ],
+          "default": "anthropic",
+          "description": "Which model catalog to advertise from GET /v1/models"
+        },
+        "claudeLocalBridge.opencodeGoApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "OpenCode Go API key for provider-backed models exposed through this bridge"
+        },
+        "claudeLocalBridge.opencodeGoBaseUrl": {
+          "type": "string",
+          "default": "https://opencode.ai/zen/go",
+          "description": "Base URL for the OpenCode Go upstream API"
+        },
+        "claudeLocalBridge.opencodeGoAuthScheme": {
+          "type": "string",
+          "enum": [
+            "bearer",
+            "x-api-key"
+          ],
+          "default": "bearer",
+          "description": "How the OpenCode Go API key should be sent upstream"
         },
         "claudeLocalBridge.logRequests": {
           "type": "boolean",

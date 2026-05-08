@@ -2,6 +2,8 @@
 
 const vscode = require('vscode');
 const http = require('http');
+const https = require('https');
+const fs = require('fs');
 const { log, sendJson, updateStatusBar } = require('./utils');
 const { handleModels } = require('./handlers/models');
 const { handleAnthropicMessages, handleCountTokens } = require('./handlers/anthropic');
@@ -15,80 +17,75 @@ const { getCredentials } = require('./credentials');
 
 async function startServer(ctx) {
   const config = vscode.workspace.getConfiguration('claudeLocalBridge');
-  const basePort = config.get('port', 11436);
+  const basePort = config.get('port', 11437);
+  const httpsEnabled = config.get('httpsEnabled', false);
+  const httpsBasePort = config.get('httpsPort', 11443);
 
-  if (ctx.server) await stopServer(ctx);
+  if (ctx.server || ctx.httpsServer) await stopServer(ctx);
 
-  ctx.server = http.createServer((req, res) => {
-    handleRequest(ctx, req, res).catch((err) => {
-      log(ctx, `Request error: ${err.message}`, true);
-      if (!res.headersSent) {
-        sendJson(res, 500, { error: { message: err.message, type: 'internal_error' } });
-      } else if (!res.writableEnded) {
-        res.write(`data: {"error": "${err.message.replace(/"/g, '\\"')}"}\n\ndata: [DONE]\n\n`);
-        res.end();
-      }
-    });
+  const maxRetries = 10;
+  const requestHandler = createRequestHandler(ctx);
+
+  // Start the normal HTTP listener first.
+  const httpServer = await bindSequentialPorts(
+    () => http.createServer(requestHandler),
+    basePort,
+    maxRetries,
+  );
+  ctx.server = httpServer.server;
+
+  const creds = getCredentials(ctx);
+  log(ctx, `✅ Server running on http://localhost:${httpServer.port}  [${creds.source}]`);
+  updateStatusBar(ctx, true, httpServer.port, creds.source);
+  ctx.server.on('error', (err) => {
+    log(ctx, `❌ Server runtime error: ${err.message}`, true);
+    updateStatusBar(ctx, false);
   });
 
-  ctx.server.timeout = 0;
-  ctx.server.keepAliveTimeout = 0;
+  if (!httpsEnabled) return;
 
-  let bound = false;
-  const maxRetries = 10;
+  const tlsOptions = loadHttpsOptions(config);
+  const httpsServer = await bindSequentialPorts(
+    () => https.createServer(tlsOptions, requestHandler),
+    httpsBasePort,
+    maxRetries,
+  );
+  ctx.httpsServer = httpsServer.server;
+  ctx.httpsServer.on('error', (err) => {
+    log(ctx, `❌ HTTPS server runtime error: ${err.message}`, true);
+  });
 
-  for (let offset = 0; offset <= maxRetries; offset++) {
-    const port = basePort + offset;
-    try {
-      await new Promise((resolve, reject) => {
-        function onError(err) {
-          if (err.code === 'EADDRINUSE') resolve(false);
-          else reject(err);
-        }
-        ctx.server.once('error', onError);
-        ctx.server.listen(port, '127.0.0.1', () => {
-          ctx.server.removeListener('error', onError);
-          const creds = getCredentials(ctx);
-          log(ctx, `✅ Server running on http://localhost:${port}  [${creds.source}]`);
-          updateStatusBar(ctx, true, port, creds.source);
-          resolve(true);
-        });
-      });
-
-      if (ctx.server.listening) {
-        bound = true;
-        ctx.server.on('error', (err) => {
-          log(ctx, `❌ Server runtime error: ${err.message}`, true);
-          updateStatusBar(ctx, false);
-        });
-        break;
-      }
-    } catch (err) {
-      log(ctx, `❌ Server startup failed: ${err.message}`, true);
-      updateStatusBar(ctx, false);
-      throw err;
-    }
-  }
-
-  if (!bound) {
-    const errMsg = `listen EADDRINUSE: Exhausted ${maxRetries} sequential ports starting at ${basePort}`;
-    log(ctx, `❌ Server failed: ${errMsg}`, true);
-    updateStatusBar(ctx, false);
-    throw new Error(errMsg);
-  }
+  log(ctx, `🔐 HTTPS server running on https://localhost:${httpsServer.port}`);
 }
 
 function stopServer(ctx) {
   return new Promise((resolve) => {
-    if (!ctx.server) {
+    let remaining = 0;
+
+    function done() {
+      remaining -= 1;
+      if (remaining <= 0) {
+        ctx.server = null;
+        ctx.httpsServer = null;
+        updateStatusBar(ctx, false);
+        resolve();
+      }
+    }
+
+    if (!ctx.server && !ctx.httpsServer) {
       resolve();
       return;
     }
-    ctx.server.close(() => {
-      ctx.server = null;
-      updateStatusBar(ctx, false);
-      resolve();
-    });
+
+    if (ctx.server) {
+      remaining += 1;
+      ctx.server.close(done);
+    }
+
+    if (ctx.httpsServer) {
+      remaining += 1;
+      ctx.httpsServer.close(done);
+    }
   });
 }
 
@@ -100,10 +97,76 @@ function isLocalhostOrigin(origin) {
   if (!origin) return false;
   try {
     const url = new URL(origin);
-    return url.protocol === 'http:' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1');
+    return (
+      (url.protocol === 'http:' || url.protocol === 'https:') &&
+      (url.hostname === 'localhost' || url.hostname === '127.0.0.1')
+    );
   } catch {
     return false;
   }
+}
+
+function createRequestHandler(ctx) {
+  return (req, res) => {
+    handleRequest(ctx, req, res).catch((err) => {
+      log(ctx, `Request error: ${err.message}`, true);
+      if (!res.headersSent) {
+        sendJson(res, 500, { error: { message: err.message, type: 'internal_error' } });
+      } else if (!res.writableEnded) {
+        res.write(`data: {"error": "${err.message.replace(/"/g, '\\"')}"}\n\ndata: [DONE]\n\n`);
+        res.end();
+      }
+    });
+  };
+}
+
+async function bindSequentialPorts(serverFactory, basePort, maxRetries) {
+  for (let offset = 0; offset <= maxRetries; offset++) {
+    const port = basePort + offset;
+    const server = serverFactory();
+    server.timeout = 0;
+    server.keepAliveTimeout = 0;
+
+    const didBind = await new Promise((resolve, reject) => {
+      function onError(err) {
+        server.removeListener('listening', onListening);
+        if (err.code === 'EADDRINUSE') {
+          resolve(false);
+          return;
+        }
+        reject(err);
+      }
+
+      function onListening() {
+        server.removeListener('error', onError);
+        resolve(true);
+      }
+
+      server.once('error', onError);
+      server.once('listening', onListening);
+      server.listen(port, '127.0.0.1');
+    });
+
+    if (didBind) {
+      return { server, port };
+    }
+  }
+
+  throw new Error(`listen EADDRINUSE: Exhausted ${maxRetries} sequential ports starting at ${basePort}`);
+}
+
+function loadHttpsOptions(config) {
+  const keyFile = config.get('httpsKeyFile', '');
+  const certFile = config.get('httpsCertFile', '');
+
+  if (!keyFile || !certFile) {
+    throw new Error('HTTPS is enabled but claudeLocalBridge.httpsKeyFile or httpsCertFile is missing');
+  }
+
+  return {
+    key: fs.readFileSync(keyFile),
+    cert: fs.readFileSync(certFile),
+  };
 }
 
 async function handleRequest(ctx, req, res) {
