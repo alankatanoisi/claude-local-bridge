@@ -155,7 +155,15 @@ function anthropicToOpenAI(ant, resolveModelName) {
   const systemBlocks = normalizeAnthropicSystemBlocks(ant.system);
   for (const block of systemBlocks) {
     if (block.type === 'text' && block.text) {
-      messages.push({ role: 'system', content: block.text });
+      messages.push({
+        role: 'system',
+        content: [
+          {
+            type: 'text',
+            text: block.text,
+          },
+        ],
+      });
     }
   }
 
@@ -562,12 +570,17 @@ function createOpenAIToAnthropicStreamConverter(res, advertisedModel) {
 
 function convertAnthropicAssistantMessageToOpenAI(msg) {
   const blocks = normalizeAnthropicContent(msg.content);
-  let text = '';
+  const textParts = [];
   const toolCalls = [];
 
   for (const block of blocks) {
     if (block.type === 'text') {
-      text += block.text || '';
+      if (block.text) {
+        textParts.push({
+          type: 'text',
+          text: block.text,
+        });
+      }
       continue;
     }
 
@@ -583,7 +596,7 @@ function convertAnthropicAssistantMessageToOpenAI(msg) {
     }
   }
 
-  const result = { role: 'assistant', content: text || null };
+  const result = { role: 'assistant', content: textParts.length > 0 ? textParts : null };
   if (toolCalls.length > 0) result.tool_calls = toolCalls;
   return result;
 }
@@ -597,14 +610,19 @@ function convertAnthropicUserMessageToOpenAI(msg) {
     if (currentContentParts.length === 0) return;
     messages.push({
       role: 'user',
-      content: currentContentParts.length === 1 && typeof currentContentParts[0] === 'string' ? currentContentParts[0] : currentContentParts,
+      content: currentContentParts,
     });
     currentContentParts = [];
   }
 
   for (const block of blocks) {
     if (block.type === 'text') {
-      currentContentParts.push(block.text || '');
+      if (block.text) {
+        currentContentParts.push({
+          type: 'text',
+          text: block.text,
+        });
+      }
       continue;
     }
 
@@ -630,10 +648,6 @@ function convertAnthropicUserMessageToOpenAI(msg) {
   }
 
   flushUserContent();
-
-  if (messages.length === 0) {
-    messages.push({ role: 'user', content: '' });
-  }
 
   return messages;
 }

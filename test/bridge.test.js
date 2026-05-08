@@ -141,8 +141,40 @@ describe('Anthropic/OpenAI translators', () => {
 
     assert.equal(result.model, 'deepseek-v4-pro');
     assert.equal(result.messages[0].role, 'system');
+    assert.deepEqual(result.messages[0].content, [{ type: 'text', text: 'You are helpful.' }]);
     assert.equal(result.messages[1].role, 'user');
+    assert.deepEqual(result.messages[1].content, [{ type: 'text', text: 'hello' }]);
     assert.equal(result.tools[0].function.name, 'lookup_weather');
+  });
+
+  it('does not emit empty user messages when Anthropic user content is blank', () => {
+    const { anthropicToOpenAI } = require('../src/translators/anthropic-openai');
+    const result = anthropicToOpenAI(
+      {
+        model: 'anthropic/claude-opencode-go-kimi-k2--6',
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'text', text: '' }],
+          },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'toolu_123',
+                content: 'ok',
+              },
+            ],
+          },
+        ],
+      },
+      (model) => model.replace('anthropic/claude-opencode-go-', '').replace(/--/g, '.'),
+    );
+
+    assert.equal(result.messages.length, 1);
+    assert.equal(result.messages[0].role, 'tool');
+    assert.equal(result.messages[0].content, 'ok');
   });
 
   it('converts OpenAI responses back to Anthropic message format', () => {
