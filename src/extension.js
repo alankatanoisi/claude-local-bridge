@@ -2,10 +2,10 @@
 
 // Claude Local Bridge — VS Code Extension
 // Reads Claude Code credentials and exposes an OpenAI/Anthropic-compatible
-// local HTTP API on localhost:11436.
+// local HTTP API on localhost:11437.
 //
 // Architecture:
-//   HTTP server (:11436) → discover credentials (keychain/file/env)
+//   HTTP server (:11437) → discover credentials (keychain/file/env)
 //     → inject auth header → proxy to api.anthropic.com → stream back
 //
 // Credential priority:

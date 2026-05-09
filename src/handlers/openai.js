@@ -475,4 +475,9 @@ async function handleChatCompletionsStreaming(ctx, _req, res, antBodyStr, modelN
   });
 }
 
-module.exports = { handleChatCompletions };
+module.exports = {
+  handleChatCompletions,
+  openAIToAnthropic,
+  anthropicToOpenAI,
+  createAnthropicToOpenAIStreamConverter,
+};

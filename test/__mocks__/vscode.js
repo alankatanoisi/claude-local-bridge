@@ -11,7 +11,7 @@
 const Module = require('module');
 
 const config = {
-  port: 11436,
+  port: 11437,
   anthropicBaseUrl: 'https://api.anthropic.com',
   apiKey: '',
   defaultModel: 'claude-sonnet-4-5',

@@ -15,7 +15,7 @@ const { getCredentials } = require('./credentials');
 
 async function startServer(ctx) {
   const config = vscode.workspace.getConfiguration('claudeLocalBridge');
-  const basePort = config.get('port', 11436);
+  const basePort = config.get('port', 11437);
 
   if (ctx.server) await stopServer(ctx);
 

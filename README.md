@@ -1,15 +1,15 @@
 # Claude Local Bridge
 
-A VS Code extension that reads your **Claude Code** credentials and exposes them as a local HTTP server on `localhost:11436`, compatible with both the **Anthropic Messages API** and the **OpenAI Chat Completions API**.
+A VS Code extension that reads your **Claude Code** credentials and exposes them as a local HTTP server on `localhost:11437`, compatible with both the **Anthropic Messages API** and the **OpenAI Chat Completions API**.
 
-Point any LLM tool at `http://localhost:11436` and it will transparently use your Claude Pro/Max subscription — no separate API key required.
+Point any LLM tool at `http://localhost:11437` and it will transparently use your Claude Pro/Max subscription — no separate API key required.
 
 ---
 
 ## How it works
 
 ```
-Your tool  →  localhost:11436  →  reads Claude Code credentials  →  api.anthropic.com
+Your tool  →  localhost:11437  →  reads Claude Code credentials  →  api.anthropic.com
 ```
 
 The extension discovers your credentials automatically (see priority order below), injects the auth header, and pipes the response straight back — with true streaming support and no extra buffering.
@@ -48,7 +48,7 @@ Open **VS Code Settings** and search for `Claude Local Bridge`:
 
 | Setting                              | Default                     | Description                               |
 | ------------------------------------ | --------------------------- | ----------------------------------------- |
-| `claudeLocalBridge.port`             | `11436`                     | HTTP server port                          |
+| `claudeLocalBridge.port`             | `11437`                     | HTTP server port                          |
 | `claudeLocalBridge.anthropicBaseUrl` | `https://api.anthropic.com` | Override for staging                      |
 | `claudeLocalBridge.apiKey`           | `""`                        | Manual API key (lowest priority)          |
 | `claudeLocalBridge.defaultModel`     | `claude-sonnet-4-5`         | Default model when none is specified      |
@@ -61,7 +61,7 @@ Open **VS Code Settings** and search for `Claude Local Bridge`:
 Set `ANTHROPIC_BASE_URL` to point Claude Code at your local bridge:
 
 ```bash
-export ANTHROPIC_BASE_URL=http://localhost:11436
+export ANTHROPIC_BASE_URL=http://localhost:11437
 export ANTHROPIC_API_KEY=local  # required by the CLI, value is ignored
 
 claude
@@ -73,7 +73,7 @@ The Claude Code CLI will route its requests through the bridge, which injects yo
 
 Point the provider at:
 
-- **Base URL**: `http://localhost:11436`
+- **Base URL**: `http://localhost:11437`
 - **API Key**: anything (e.g. `local`) — the bridge ignores the incoming key and uses its own credentials
 - **Model**: any Claude model name (e.g. `claude-sonnet-4-5`)
 
@@ -93,7 +93,7 @@ If the retry also fails, run `claude /login` (or simply open Claude Code) — th
 
 ## Status Bar
 
-The extension shows a status bar item: `📡 Claude Bridge :11436 [keychain]`
+The extension shows a status bar item: `📡 Claude Bridge :11437 [keychain]`
 
 Click it to see the current credential source and server status.
 

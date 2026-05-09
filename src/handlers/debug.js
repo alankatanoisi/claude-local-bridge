@@ -13,7 +13,7 @@ async function handleDebug(ctx, _req, res) {
   const config = vscode.workspace.getConfiguration('claudeLocalBridge');
   const creds = getCredentials(ctx);
 
-  const port = ctx.server?.address()?.port ?? config.get('port', 11436);
+  const port = ctx.server?.address()?.port ?? config.get('port', 11437);
 
   sendJson(res, 200, {
     status: 'running',
