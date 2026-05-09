@@ -8,7 +8,7 @@ const { log, sendJson, updateStatusBar } = require('./utils');
 const { handleModels } = require('./handlers/models');
 const { handleAnthropicMessages, handleCountTokens } = require('./handlers/anthropic');
 const { handleChatCompletions } = require('./handlers/openai');
-const { handleDebug } = require('./handlers/debug');
+const { handleDebug, handleDebugProfiles, handleDebugIde, handleDebugSecurity } = require('./handlers/debug');
 const { getCredentials } = require('./credentials');
 
 // ─────────────────────────────────────────────
@@ -27,11 +27,7 @@ async function startServer(ctx) {
   const requestHandler = createRequestHandler(ctx);
 
   // Start the normal HTTP listener first.
-  const httpServer = await bindSequentialPorts(
-    () => http.createServer(requestHandler),
-    basePort,
-    maxRetries,
-  );
+  const httpServer = await bindSequentialPorts(() => http.createServer(requestHandler), basePort, maxRetries);
   ctx.server = httpServer.server;
 
   const creds = getCredentials(ctx);
@@ -217,6 +213,18 @@ async function handleRequest(ctx, req, res) {
   // ── Debug ──
   if (req.method === 'GET' && url.pathname === '/v1/debug') {
     return handleDebug(ctx, req, res);
+  }
+
+  if (req.method === 'GET' && url.pathname === '/v1/debug/profiles') {
+    return handleDebugProfiles(ctx, req, res);
+  }
+
+  if (req.method === 'GET' && url.pathname === '/v1/debug/ide') {
+    return handleDebugIde(ctx, req, res);
+  }
+
+  if (req.method === 'GET' && url.pathname === '/v1/debug/security') {
+    return handleDebugSecurity(ctx, req, res);
   }
 
   sendJson(res, 404, {

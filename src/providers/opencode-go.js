@@ -6,6 +6,7 @@ const { URL } = require('url');
 const vscode = require('vscode');
 const { randomUUID } = require('crypto');
 const { log, sendJson, verboseLog } = require('../utils');
+const { recordRoute } = require('../profiles');
 const {
   openAIToAnthropic,
   anthropicToOpenAI,
@@ -136,6 +137,15 @@ async function handleAnthropicMessagesToOpenCodeGo(ctx, req, res, antBody) {
     return;
   }
 
+  recordRoute(ctx, {
+    endpoint: '/v1/messages',
+    providerId: OPENCODE_GO_PROVIDER_ID,
+    incomingWireApi: 'anthropic-messages',
+    upstreamWireApi: model.wire_api,
+    requestedModel: antBody.model,
+    upstreamModel: model.upstream_model,
+  });
+
   if (model.wire_api === 'anthropic-messages') {
     return proxyAnthropicBodyToAnthropicUpstream(ctx, res, antBody, model);
   }
@@ -175,6 +185,15 @@ async function handleOpenAIChatToOpenCodeGo(ctx, req, res, oaiBody) {
     });
     return;
   }
+
+  recordRoute(ctx, {
+    endpoint: '/v1/chat/completions',
+    providerId: OPENCODE_GO_PROVIDER_ID,
+    incomingWireApi: 'openai-chat',
+    upstreamWireApi: model.wire_api,
+    requestedModel: oaiBody.model,
+    upstreamModel: model.upstream_model,
+  });
 
   if (model.wire_api === 'openai-chat-completions') {
     return proxyOpenAIBodyToOpenAIUpstream(ctx, res, oaiBody, model);
@@ -286,10 +305,7 @@ async function proxyOpenAIBodyToAnthropicUpstream(ctx, res, oaiBody, model) {
   }
 
   const completionId = `chatcmpl-${randomUUID()}`;
-  const oaiResponse = anthropicResponseToOpenAI(
-    { ...response.json, model: model.id },
-    completionId,
-  );
+  const oaiResponse = anthropicResponseToOpenAI({ ...response.json, model: model.id }, completionId);
   sendJson(res, 200, oaiResponse);
 }
 
@@ -463,9 +479,7 @@ function stripOpenCodeGoPrefix(value) {
     return value.slice(OPENCODE_GO_PROVIDER_ID.length + 1);
   }
   if (value.startsWith('anthropic/claude-opencode-go-')) {
-    return value
-      .slice('anthropic/claude-opencode-go-'.length)
-      .replace(/--/g, '.');
+    return value.slice('anthropic/claude-opencode-go-'.length).replace(/--/g, '.');
   }
   return value;
 }

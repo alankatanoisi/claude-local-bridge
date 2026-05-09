@@ -26,6 +26,7 @@ const {
   createAnthropicToOpenAIStreamConverter,
 } = require('../translators/anthropic-openai');
 const { isOpenCodeGoModel, handleOpenAIChatToOpenCodeGo } = require('../providers/opencode-go');
+const { WIRE_APIS, recordRoute } = require('../profiles');
 
 // ─────────────────────────────────────────────
 // Handler
@@ -46,10 +47,25 @@ async function handleChatCompletions(ctx, req, res) {
   // If the requested model belongs to a provider-backed catalog like
   // `opencode-go/...`, hand off to that adapter immediately.
   if (isOpenCodeGoModel(oaiBody.model)) {
+    recordRoute(ctx, {
+      endpoint: '/v1/chat/completions',
+      providerId: 'opencode-go',
+      incomingWireApi: WIRE_APIS.OPENAI_CHAT,
+      upstreamWireApi: 'model-specific',
+      requestedModel: oaiBody.model,
+    });
     return handleOpenAIChatToOpenCodeGo(ctx, req, res, oaiBody);
   }
 
   const antBody = openAIToAnthropic(oaiBody, (model) => resolveModel(model, vscode));
+  recordRoute(ctx, {
+    endpoint: '/v1/chat/completions',
+    providerId: 'anthropic',
+    incomingWireApi: WIRE_APIS.OPENAI_CHAT,
+    upstreamWireApi: WIRE_APIS.ANTHROPIC_MESSAGES,
+    requestedModel: oaiBody.model || null,
+    upstreamModel: antBody.model,
+  });
   // Reshape system field to match Claude Code's wire format when using OAuth.
   prependClaudeCodeSystem(ctx, antBody, getCredentials(ctx));
   const antBodyStr = JSON.stringify(antBody);

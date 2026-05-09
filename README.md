@@ -46,13 +46,16 @@ On macOS with Claude Code installed, **Priority 3 is used automatically** — no
 
 ## Supported Endpoints
 
-| Endpoint                         | Format           | Notes                                                  |
-| -------------------------------- | ---------------- | ------------------------------------------------------ |
-| `GET /v1/models`                 | OpenAI           | Lists the currently advertised model catalog           |
-| `POST /v1/messages`              | Anthropic native | Native Anthropic endpoint; can proxy or translate      |
-| `POST /v1/messages/count_tokens` | Anthropic        | Mock response (returns 0) for Claude CLI preflight     |
-| `POST /v1/chat/completions`      | OpenAI           | OpenAI-compatible endpoint; can proxy or translate     |
-| `GET /v1/debug`                  | JSON             | Status, credential source, authenticated flag          |
+| Endpoint                         | Format           | Notes                                                   |
+| -------------------------------- | ---------------- | ------------------------------------------------------- |
+| `GET /v1/models`                 | OpenAI           | Lists the currently advertised model catalog            |
+| `POST /v1/messages`              | Anthropic native | Native Anthropic endpoint; can proxy or translate       |
+| `POST /v1/messages/count_tokens` | Anthropic        | Mock response (returns 0) for Claude CLI preflight      |
+| `POST /v1/chat/completions`      | OpenAI           | OpenAI-compatible endpoint; can proxy or translate      |
+| `GET /v1/debug`                  | JSON             | Status, credential source, authenticated flag           |
+| `GET /v1/debug/ide`              | JSON             | Redacted Claude Code IDE MCP lockfile inspection        |
+| `GET /v1/debug/profiles`         | JSON             | Provider profiles, wire APIs, identity mode, last route |
+| `GET /v1/debug/security`         | JSON             | Local Claude config/MCP security posture checks         |
 
 ---
 
@@ -60,21 +63,54 @@ On macOS with Claude Code installed, **Priority 3 is used automatically** — no
 
 Open **VS Code Settings** and search for `Claude Local Bridge`:
 
-| Setting                                  | Default                         | Description                                              |
-| ---------------------------------------- | ------------------------------- | -------------------------------------------------------- |
-| `claudeLocalBridge.port`                 | `11437`                         | HTTP server port                                         |
-| `claudeLocalBridge.httpsEnabled`         | `false`                         | Also serve the bridge over HTTPS                         |
-| `claudeLocalBridge.httpsPort`            | `11443`                         | HTTPS server port                                        |
-| `claudeLocalBridge.httpsKeyFile`         | `""`                            | Absolute path to TLS private key                         |
-| `claudeLocalBridge.httpsCertFile`        | `""`                            | Absolute path to TLS certificate                         |
-| `claudeLocalBridge.anthropicBaseUrl`     | `https://api.anthropic.com`     | Override for Anthropic pass-through mode                 |
-| `claudeLocalBridge.apiKey`               | `""`                            | Manual Anthropic API key fallback                        |
-| `claudeLocalBridge.defaultModel`         | `claude-sonnet-4-6`             | Default model when none is specified                     |
-| `claudeLocalBridge.modelCatalog`         | `anthropic`                     | Advertised catalog: `anthropic`, `opencode-go`, `hybrid` |
-| `claudeLocalBridge.opencodeGoApiKey`     | `""`                            | OpenCode Go API key                                      |
-| `claudeLocalBridge.opencodeGoBaseUrl`    | `https://opencode.ai/zen/go`    | OpenCode Go base URL                                     |
-| `claudeLocalBridge.opencodeGoAuthScheme` | `bearer`                        | How the OpenCode Go key is sent upstream                 |
-| `claudeLocalBridge.logRequests`          | `false`                         | Verbose request logging to Output channel                |
+| Setting                                           | Default                               | Description                                                         |
+| ------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------- |
+| `claudeLocalBridge.port`                          | `11437`                               | HTTP server port                                                    |
+| `claudeLocalBridge.httpsEnabled`                  | `false`                               | Also serve the bridge over HTTPS                                    |
+| `claudeLocalBridge.httpsPort`                     | `11443`                               | HTTPS server port                                                   |
+| `claudeLocalBridge.httpsKeyFile`                  | `""`                                  | Absolute path to TLS private key                                    |
+| `claudeLocalBridge.httpsCertFile`                 | `""`                                  | Absolute path to TLS certificate                                    |
+| `claudeLocalBridge.anthropicBaseUrl`              | `https://api.anthropic.com`           | Override for Anthropic pass-through mode                            |
+| `claudeLocalBridge.apiKey`                        | `""`                                  | Manual Anthropic API key fallback                                   |
+| `claudeLocalBridge.defaultModel`                  | `claude-sonnet-4-6`                   | Default model when none is specified                                |
+| `claudeLocalBridge.modelCatalog`                  | `anthropic`                           | Advertised catalog: `anthropic`, `opencode-go`, `hybrid`            |
+| `claudeLocalBridge.defaultWireApi`                | `anthropic-messages`                  | Debug/profile label for the default wire protocol                   |
+| `claudeLocalBridge.providerProfiles`              | `{}`                                  | Advanced per-provider profile overrides                             |
+| `claudeLocalBridge.identityMode`                  | `compatibility`                       | Identity mode: `compatibility`, `plain-api`, `observed-official`    |
+| `claudeLocalBridge.replayFingerprintHeaders`      | `true`                                | Whether OAuth requests replay captured/fallback fingerprint headers |
+| `claudeLocalBridge.prependClaudeCodeSystemBlocks` | `true`                                | Whether OAuth requests prepend Claude-Code-like system blocks       |
+| `claudeLocalBridge.opencodeGoApiKey`              | `""`                                  | OpenCode Go API key                                                 |
+| `claudeLocalBridge.opencodeGoBaseUrl`             | `https://opencode.ai/zen/go`          | OpenCode Go base URL                                                |
+| `claudeLocalBridge.opencodeGoAuthScheme`          | `bearer`                              | How the OpenCode Go key is sent upstream                            |
+| `claudeLocalBridge.openaiApiKey`                  | `""`                                  | OpenAI key for provider-profile experiments                         |
+| `claudeLocalBridge.openaiBaseUrl`                 | `https://api.openai.com/v1`           | OpenAI-compatible base URL                                          |
+| `claudeLocalBridge.nvidiaApiKey`                  | `""`                                  | NVIDIA key for provider-profile experiments                         |
+| `claudeLocalBridge.nvidiaBaseUrl`                 | `https://integrate.api.nvidia.com/v1` | NVIDIA NIM OpenAI-compatible base URL                               |
+| `claudeLocalBridge.logRequests`                   | `false`                               | Verbose request logging to Output channel                           |
+
+### Identity modes
+
+`compatibility` keeps the bridge's existing Claude-Code-compatible behavior. It can replay captured fingerprint headers and, if no live capture exists, fall back to the bridge's hardcoded compatibility headers.
+
+`plain-api` sends only the minimal API/auth headers. This is useful as a clean baseline when you want to see what breaks without client identity replay.
+
+`observed-official` replays only headers observed from a real local Claude Code request. It does not use the hardcoded fallback fingerprint.
+
+### Claude Code wrapper tracer
+
+The repo includes `scripts/claude-wrapper-trace.sh` for observing the official Claude Code VS Code launch path. It logs redacted launch context to:
+
+```text
+~/.claude-local-bridge/claude-wrapper-trace.log
+```
+
+To use it, set VS Code's **Claude Code: Claude Process Wrapper** setting to:
+
+```text
+/Users/alanman/Documents/GitHub/claude-local-bridge/scripts/claude-wrapper-trace.sh
+```
+
+Then restart the Claude Code extension or reload VS Code. The wrapper receives the real bundled Claude binary as its first argument, sets `HTTPS_PROXY=http://localhost:11439` when no proxy is already set, and then launches the real binary.
 
 ---
 

@@ -97,6 +97,41 @@
           "default": "anthropic",
           "description": "Which model catalog to advertise from GET /v1/models"
         },
+        "claudeLocalBridge.defaultWireApi": {
+          "type": "string",
+          "enum": [
+            "anthropic-messages",
+            "openai-chat",
+            "openai-responses"
+          ],
+          "default": "anthropic-messages",
+          "description": "Default wire API label used by the profile/debug layer"
+        },
+        "claudeLocalBridge.providerProfiles": {
+          "type": "object",
+          "default": {},
+          "description": "Advanced provider profile overrides keyed by provider id. Use for local routing experiments without editing code."
+        },
+        "claudeLocalBridge.identityMode": {
+          "type": "string",
+          "enum": [
+            "compatibility",
+            "plain-api",
+            "observed-official"
+          ],
+          "default": "compatibility",
+          "description": "Identity experiment mode: compatibility replays current Claude-Code-like headers, plain-api minimizes headers, observed-official replays only live observed headers"
+        },
+        "claudeLocalBridge.replayFingerprintHeaders": {
+          "type": "boolean",
+          "default": true,
+          "description": "Replay captured/fallback client fingerprint headers when using OAuth bearer credentials"
+        },
+        "claudeLocalBridge.prependClaudeCodeSystemBlocks": {
+          "type": "boolean",
+          "default": true,
+          "description": "Prepend Claude-Code-like system identity blocks when using OAuth bearer credentials"
+        },
         "claudeLocalBridge.opencodeGoApiKey": {
           "type": "string",
           "default": "",
@@ -115,6 +150,26 @@
           ],
           "default": "bearer",
           "description": "How the OpenCode Go API key should be sent upstream"
+        },
+        "claudeLocalBridge.openaiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "OpenAI API key for future OpenAI provider-profile routing experiments"
+        },
+        "claudeLocalBridge.openaiBaseUrl": {
+          "type": "string",
+          "default": "https://api.openai.com/v1",
+          "description": "OpenAI-compatible base URL for future OpenAI provider-profile routing experiments"
+        },
+        "claudeLocalBridge.nvidiaApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "NVIDIA API key for future NVIDIA provider-profile routing experiments"
+        },
+        "claudeLocalBridge.nvidiaBaseUrl": {
+          "type": "string",
+          "default": "https://integrate.api.nvidia.com/v1",
+          "description": "NVIDIA NIM OpenAI-compatible base URL for future provider-profile routing experiments"
         },
         "claudeLocalBridge.logRequests": {
           "type": "boolean",

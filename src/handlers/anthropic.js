@@ -13,6 +13,7 @@ const { resolveModel } = require('../models');
 const { proxyToAnthropic } = require('../proxy');
 const { getCredentials, prependClaudeCodeSystem, messagesPathFor } = require('../credentials');
 const { isOpenCodeGoModel, handleAnthropicMessagesToOpenCodeGo } = require('../providers/opencode-go');
+const { WIRE_APIS, recordRoute } = require('../profiles');
 
 const vscode = require('vscode');
 
@@ -55,11 +56,25 @@ async function handleAnthropicMessages(ctx, req, res) {
   // the right adapter. We should not run them through the local Anthropic alias
   // table because that would strip away the provider identity.
   if (isOpenCodeGoModel(body.model)) {
+    recordRoute(ctx, {
+      endpoint: '/v1/messages',
+      providerId: 'opencode-go',
+      incomingWireApi: WIRE_APIS.ANTHROPIC_MESSAGES,
+      upstreamWireApi: 'model-specific',
+      requestedModel: body.model,
+    });
     return handleAnthropicMessagesToOpenCodeGo(ctx, req, res, body);
   }
 
   // Resolve model name (with alias table + passthrough)
   body.model = resolveModel(body.model, vscode);
+  recordRoute(ctx, {
+    endpoint: '/v1/messages',
+    providerId: 'anthropic',
+    incomingWireApi: WIRE_APIS.ANTHROPIC_MESSAGES,
+    upstreamWireApi: WIRE_APIS.ANTHROPIC_MESSAGES,
+    requestedModel: body.model,
+  });
 
   // Anthropic requires max_tokens — default if missing
   if (!body.max_tokens) body.max_tokens = 4096;

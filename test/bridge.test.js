@@ -2,6 +2,9 @@
 
 const { describe, it, before } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 // Credentials module tests
 // We mock process.env and child_process to avoid real keychain/file access.
@@ -202,6 +205,57 @@ describe('Anthropic/OpenAI translators', () => {
     assert.equal(result.content[0].text, 'hello');
     assert.equal(result.stop_reason, 'end_turn');
   });
+
+  it('preserves reasoning_content when converting OpenAI responses to Anthropic', () => {
+    const { openAIResponseToAnthropic } = require('../src/translators/anthropic-openai');
+    const result = openAIResponseToAnthropic(
+      {
+        choices: [
+          {
+            finish_reason: 'stop',
+            message: {
+              role: 'assistant',
+              reasoning_content: 'first think, then answer',
+              content: 'final answer',
+            },
+          },
+        ],
+      },
+      'anthropic/claude-opencode-go-deepseek-v4-pro',
+    );
+
+    assert.equal(result.content[0].type, 'thinking');
+    assert.equal(result.content[0].thinking, 'first think, then answer');
+    assert.equal(result.content[1].type, 'text');
+    assert.equal(result.content[1].text, 'final answer');
+  });
+
+  it('maps Anthropic thinking blocks back to OpenAI reasoning_content', () => {
+    const { anthropicToOpenAI } = require('../src/translators/anthropic-openai');
+    const result = anthropicToOpenAI(
+      {
+        model: 'anthropic/claude-opencode-go-deepseek-v4-pro',
+        messages: [
+          {
+            role: 'assistant',
+            content: [
+              { type: 'thinking', thinking: 'hidden chain' },
+              { type: 'text', text: 'visible answer' },
+            ],
+          },
+          {
+            role: 'user',
+            content: [{ type: 'text', text: 'continue' }],
+          },
+        ],
+      },
+      (model) => model.replace('anthropic/claude-opencode-go-', '').replace(/--/g, '.'),
+    );
+
+    assert.equal(result.messages[0].role, 'assistant');
+    assert.equal(result.messages[0].reasoning_content, 'hidden chain');
+    assert.deepEqual(result.messages[0].content, [{ type: 'text', text: 'visible answer' }]);
+  });
 });
 
 describe('credentials.buildAuthHeaders', () => {
@@ -233,6 +287,134 @@ describe('credentials.buildAuthHeaders', () => {
     assert.equal(headers['user-agent'], 'claude-cli/2.2.0 (test)');
     assert.equal(headers['anthropic-beta'], 'test-beta-2026-01-01');
     assert.equal(headers['x-stainless-runtime'], 'node');
+  });
+
+  it('plain-api identity mode omits fingerprint replay', () => {
+    const vscode = require('./__mocks__/vscode');
+    vscode.__setConfig('identityMode', 'plain-api');
+
+    const { buildAuthHeaders } = require('../src/credentials');
+    const headers = buildAuthHeaders(
+      {
+        liveFingerprint: {
+          'user-agent': 'claude-cli/2.2.0 (test)',
+          'x-stainless-runtime': 'node',
+        },
+      },
+      { accessToken: 'tok-123', source: 'intercepted' },
+    );
+
+    assert.equal(headers['authorization'], 'Bearer tok-123');
+    assert.equal(headers['user-agent'], undefined);
+    assert.equal(headers['x-stainless-runtime'], undefined);
+    vscode.__resetConfig();
+  });
+});
+
+describe('IDE and security inspectors', () => {
+  it('redacts Claude IDE MCP lockfile auth tokens', () => {
+    const { inspectIdeLockfiles } = require('../src/ide-inspector');
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-ide-'));
+    const ideDir = path.join(homeDir, '.claude', 'ide');
+    fs.mkdirSync(ideDir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(
+      path.join(ideDir, '12345.lock'),
+      JSON.stringify({
+        pid: 111,
+        workspaceFolders: ['/tmp/project'],
+        ideName: 'Visual Studio Code',
+        transport: 'ws',
+        runningInWindows: false,
+        authToken: 'super-secret-token',
+      }),
+      { mode: 0o600 },
+    );
+
+    const report = inspectIdeLockfiles({ homeDir });
+    assert.equal(report.exists, true);
+    assert.equal(report.lockfiles.length, 1);
+    assert.equal(report.lockfiles[0].data.authToken.present, true);
+    assert.match(report.lockfiles[0].data.authToken.fingerprint, /^sha256:/);
+    assert.ok(!JSON.stringify(report).includes('super-secret-token'));
+  });
+
+  it('flags external proxies and sensitive MCP headers without leaking values', () => {
+    const { inspectClaudeSecurity } = require('../src/security-inspector');
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-security-'));
+    const configPath = path.join(homeDir, '.claude.json');
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          demo: {
+            url: 'http://example.com/mcp',
+            headers: {
+              Authorization: 'Bearer sensitive-token',
+            },
+            env: {
+              HTTPS_PROXY: 'http://proxy.example.com:8080',
+            },
+          },
+        },
+      }),
+      { mode: 0o600 },
+    );
+
+    const report = inspectClaudeSecurity({ homeDir, paths: [configPath] });
+    const kinds = report.findings.map((finding) => finding.kind);
+    assert.ok(kinds.includes('mcp_insecure_url'));
+    assert.ok(kinds.includes('mcp_sensitive_header'));
+    assert.ok(kinds.includes('external_proxy_configured'));
+    assert.ok(!JSON.stringify(report).includes('sensitive-token'));
+  });
+});
+
+describe('provider profiles', () => {
+  it('reports identity mode, provider profiles, and last route', () => {
+    const { getProfilesDebug, recordRoute } = require('../src/profiles');
+    const ctx = makeCtx();
+    ctx.interceptedToken = 'tok-123';
+    ctx.interceptedHeaderType = 'bearer';
+    ctx.interceptedSource = 'test';
+
+    recordRoute(ctx, {
+      endpoint: '/v1/messages',
+      providerId: 'anthropic',
+      incomingWireApi: 'anthropic-messages',
+      upstreamWireApi: 'anthropic-messages',
+      requestedModel: 'claude-sonnet-4-6',
+    });
+
+    const report = getProfilesDebug(ctx);
+    assert.equal(report.identity.mode, 'compatibility');
+    assert.equal(report.lastRoute.providerId, 'anthropic');
+    assert.ok(report.providers.find((profile) => profile.id === 'anthropic'));
+    assert.ok(report.providers.find((profile) => profile.id === 'openai'));
+  });
+
+  it('applies safe provider profile overrides', () => {
+    const vscode = require('./__mocks__/vscode');
+    vscode.__setConfig('providerProfiles', {
+      openai: {
+        enabled: true,
+        baseUrl: 'https://gateway.example.test/v1',
+        wireApis: ['openai-chat', 'not-real'],
+      },
+    });
+
+    const { getProfilesDebug } = require('../src/profiles');
+    const ctx = makeCtx();
+    ctx.interceptedToken = 'tok-123';
+    ctx.interceptedHeaderType = 'bearer';
+    ctx.interceptedSource = 'test';
+
+    const report = getProfilesDebug(ctx);
+    const openai = report.providers.find((profile) => profile.id === 'openai');
+
+    assert.equal(openai.enabled, true);
+    assert.equal(openai.baseUrl, 'https://gateway.example.test/v1');
+    assert.deepEqual(openai.wireApis, ['openai-chat']);
+    vscode.__resetConfig();
   });
 });
 

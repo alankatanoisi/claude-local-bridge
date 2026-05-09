@@ -20,9 +20,18 @@ const config = {
   apiKey: '',
   defaultModel: 'claude-sonnet-4-6',
   modelCatalog: 'anthropic',
+  defaultWireApi: 'anthropic-messages',
+  providerProfiles: {},
+  identityMode: 'compatibility',
+  replayFingerprintHeaders: true,
+  prependClaudeCodeSystemBlocks: true,
   opencodeGoApiKey: '',
   opencodeGoBaseUrl: 'https://opencode.ai/zen/go',
   opencodeGoAuthScheme: 'bearer',
+  openaiApiKey: '',
+  openaiBaseUrl: 'https://api.openai.com/v1',
+  nvidiaApiKey: '',
+  nvidiaBaseUrl: 'https://integrate.api.nvidia.com/v1',
   logRequests: false,
 };
 
@@ -61,6 +70,18 @@ const vscode = {
     constructor(id) {
       this.id = id;
     }
+  },
+  __setConfig: (key, value) => {
+    config[key] = value;
+  },
+  __resetConfig: () => {
+    config.identityMode = 'compatibility';
+    config.replayFingerprintHeaders = true;
+    config.prependClaudeCodeSystemBlocks = true;
+    config.modelCatalog = 'anthropic';
+    config.providerProfiles = {};
+    config.openaiApiKey = '';
+    config.nvidiaApiKey = '';
   },
 };
 

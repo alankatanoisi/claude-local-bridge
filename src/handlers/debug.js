@@ -8,6 +8,9 @@ const { sendJson } = require('../utils');
 const { getCredentials } = require('../credentials');
 const { getAdvertisedModels } = require('../catalog');
 const { getOpenCodeGoModels, shouldAdvertiseOpenCodeGo } = require('../providers/opencode-go');
+const { getProfilesDebug } = require('../profiles');
+const { inspectIdeLockfiles } = require('../ide-inspector');
+const { inspectClaudeSecurity } = require('../security-inspector');
 const vscode = require('vscode');
 
 async function handleDebug(ctx, _req, res) {
@@ -43,6 +46,7 @@ async function handleDebug(ctx, _req, res) {
     captureProxy: ctx.captureProxy ? `http://localhost:11439` : null,
     anthropicBaseUrl: config.get('anthropicBaseUrl', 'https://api.anthropic.com'),
     modelCatalog: config.get('modelCatalog', 'anthropic'),
+    profiles: getProfilesDebug(ctx),
     availableModels: advertisedModels.map((m) => m.id),
     providerSummary: {
       openCodeGoConfigured: Boolean(
@@ -51,6 +55,18 @@ async function handleDebug(ctx, _req, res) {
       openCodeGoModels: openCodeGoModels.map((m) => m.id),
     },
   });
+}
+
+function handleDebugProfiles(ctx, _req, res) {
+  sendJson(res, 200, getProfilesDebug(ctx));
+}
+
+function handleDebugIde(_ctx, _req, res) {
+  sendJson(res, 200, inspectIdeLockfiles());
+}
+
+function handleDebugSecurity(_ctx, _req, res) {
+  sendJson(res, 200, inspectClaudeSecurity());
 }
 
 /**
@@ -94,4 +110,11 @@ async function showCredentialSource(ctx) {
   );
 }
 
-module.exports = { handleDebug, showStatus, showCredentialSource };
+module.exports = {
+  handleDebug,
+  handleDebugProfiles,
+  handleDebugIde,
+  handleDebugSecurity,
+  showStatus,
+  showCredentialSource,
+};

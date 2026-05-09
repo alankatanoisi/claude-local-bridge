@@ -7,6 +7,7 @@ const path = require('path');
 const vscode = require('vscode');
 const { log } = require('./utils');
 const { buildAdaptiveAuthHeaders, getLiveSystemBlocks, adaptiveMessagesPath } = require('./fingerprint');
+const { getIdentitySettings, shouldPrependClaudeCodeSystemBlocks } = require('./identity');
 
 // ─────────────────────────────────────────────
 // Credential Discovery
@@ -178,8 +179,7 @@ const CLAUDE_CODE_FINGERPRINT = {
   },
   // First system block Claude Code sends — a billing/telemetry tag.
   // The cch=... value is opaque (likely a server-validated hash); it may rot.
-  billingHeader:
-    'x-anthropic-billing-header: cc_version=2.1.119.401; cc_entrypoint=claude-vscode; cch=d0a6f;',
+  billingHeader: 'x-anthropic-billing-header: cc_version=2.1.119.401; cc_entrypoint=claude-vscode; cch=d0a6f;',
   // Second system block — the SDK identity statement.
   agentIdentity: "You are a Claude agent, built on Anthropic's Claude Agent SDK.",
 };
@@ -214,6 +214,8 @@ function buildAuthHeaders(ctx, creds) {
  */
 function prependClaudeCodeSystem(ctx, body, creds) {
   if (!creds.accessToken) return body;
+  const identity = getIdentitySettings();
+  if (!shouldPrependClaudeCodeSystemBlocks(identity)) return body;
 
   const liveBlocks = getLiveSystemBlocks(ctx);
   if (liveBlocks) {
@@ -239,7 +241,7 @@ function prependClaudeCodeSystem(ctx, body, creds) {
     }
 
     body.system = [billingBlock, identityBlock, ...userBlocks];
-  } else {
+  } else if (identity.mode === 'compatibility') {
     // Fallback to hardcoded fingerprint
     const billingBlock = { type: 'text', text: CLAUDE_CODE_FINGERPRINT.billingHeader };
     const identityBlock = {

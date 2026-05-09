@@ -231,11 +231,17 @@ function anthropicResponseToOpenAI(antResp, completionId) {
   const finishReason = anthropicStopReasonToOpenAIFinishReason(stopReason);
 
   let textContent = '';
+  let reasoningContent = '';
   const toolCalls = [];
 
   for (const block of antResp.content || []) {
     if (block.type === 'text') {
       textContent += block.text;
+      continue;
+    }
+
+    if (block.type === 'thinking') {
+      reasoningContent += block.thinking || '';
       continue;
     }
 
@@ -252,6 +258,7 @@ function anthropicResponseToOpenAI(antResp, completionId) {
   }
 
   const message = { role: 'assistant', content: textContent || null };
+  if (reasoningContent) message.reasoning_content = reasoningContent;
   if (toolCalls.length > 0) message.tool_calls = toolCalls;
 
   return {
@@ -280,6 +287,13 @@ function openAIResponseToAnthropic(oaiResp, advertisedModel) {
   const choice = oaiResp.choices?.[0] || {};
   const message = choice.message || {};
   const content = [];
+
+  if (typeof message.reasoning_content === 'string' && message.reasoning_content.length > 0) {
+    content.push({
+      type: 'thinking',
+      thinking: message.reasoning_content,
+    });
+  }
 
   if (typeof message.content === 'string' && message.content.length > 0) {
     content.push({ type: 'text', text: message.content });
@@ -370,8 +384,10 @@ function createAnthropicToOpenAIStreamConverter(res, completionId, modelName) {
 function createOpenAIToAnthropicStreamConverter(res, advertisedModel) {
   let buffer = '';
   let messageStarted = false;
+  let thinkingBlockState = null;
   let textBlockOpen = false;
-  let nextBlockIndex = 0;
+  let textBlockIndex = null;
+  let nextBlockIndex = -1;
   const toolStates = new Map();
   const messageId = `msg_${randomUUID().replace(/-/g, '')}`;
 
@@ -397,34 +413,64 @@ function createOpenAIToAnthropicStreamConverter(res, advertisedModel) {
     });
   }
 
-  function ensureTextBlock() {
+  function ensureThinkingBlock() {
     ensureMessageStart();
-    if (textBlockOpen) return 0;
+    if (thinkingBlockState) return thinkingBlockState.blockIndex;
 
-    textBlockOpen = true;
+    const blockIndex = ++nextBlockIndex;
+    thinkingBlockState = { blockIndex, closed: false };
     writeAnthropicSseEvent(res, 'content_block_start', {
       type: 'content_block_start',
-      index: 0,
+      index: blockIndex,
+      content_block: {
+        type: 'thinking',
+        thinking: '',
+      },
+    });
+
+    return blockIndex;
+  }
+
+  function ensureTextBlock() {
+    ensureMessageStart();
+    if (textBlockOpen) return textBlockIndex;
+
+    textBlockOpen = true;
+    textBlockIndex = ++nextBlockIndex;
+    writeAnthropicSseEvent(res, 'content_block_start', {
+      type: 'content_block_start',
+      index: textBlockIndex,
       content_block: {
         type: 'text',
         text: '',
       },
     });
 
-    return 0;
+    return textBlockIndex;
+  }
+
+  function closeThinkingBlockIfOpen() {
+    if (!thinkingBlockState || thinkingBlockState.closed) return;
+    writeAnthropicSseEvent(res, 'content_block_stop', {
+      type: 'content_block_stop',
+      index: thinkingBlockState.blockIndex,
+    });
+    thinkingBlockState.closed = true;
   }
 
   function closeTextBlockIfOpen() {
     if (!textBlockOpen) return;
     writeAnthropicSseEvent(res, 'content_block_stop', {
       type: 'content_block_stop',
-      index: 0,
+      index: textBlockIndex,
     });
     textBlockOpen = false;
+    textBlockIndex = null;
   }
 
   function ensureToolBlock(toolDelta) {
     ensureMessageStart();
+    closeThinkingBlockIfOpen();
     closeTextBlockIfOpen();
 
     const existing = toolStates.get(toolDelta.index);
@@ -454,6 +500,7 @@ function createOpenAIToAnthropicStreamConverter(res, advertisedModel) {
   }
 
   function closeOpenBlocks() {
+    closeThinkingBlockIfOpen();
     closeTextBlockIfOpen();
 
     for (const state of toolStates.values()) {
@@ -492,6 +539,18 @@ function createOpenAIToAnthropicStreamConverter(res, advertisedModel) {
 
         const choice = parsed.choices?.[0];
         const delta = choice?.delta || {};
+
+        if (typeof delta.reasoning_content === 'string' && delta.reasoning_content.length > 0) {
+          const blockIndex = ensureThinkingBlock();
+          writeAnthropicSseEvent(res, 'content_block_delta', {
+            type: 'content_block_delta',
+            index: blockIndex,
+            delta: {
+              type: 'thinking_delta',
+              thinking: delta.reasoning_content,
+            },
+          });
+        }
 
         if (typeof delta.content === 'string' && delta.content.length > 0) {
           const blockIndex = ensureTextBlock();
@@ -571,6 +630,7 @@ function createOpenAIToAnthropicStreamConverter(res, advertisedModel) {
 function convertAnthropicAssistantMessageToOpenAI(msg) {
   const blocks = normalizeAnthropicContent(msg.content);
   const textParts = [];
+  const thinkingParts = [];
   const toolCalls = [];
 
   for (const block of blocks) {
@@ -580,6 +640,13 @@ function convertAnthropicAssistantMessageToOpenAI(msg) {
           type: 'text',
           text: block.text,
         });
+      }
+      continue;
+    }
+
+    if (block.type === 'thinking') {
+      if (block.thinking) {
+        thinkingParts.push(block.thinking);
       }
       continue;
     }
@@ -597,6 +664,7 @@ function convertAnthropicAssistantMessageToOpenAI(msg) {
   }
 
   const result = { role: 'assistant', content: textParts.length > 0 ? textParts : null };
+  if (thinkingParts.length > 0) result.reasoning_content = thinkingParts.join('\n\n');
   if (toolCalls.length > 0) result.tool_calls = toolCalls;
   return result;
 }

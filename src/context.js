@@ -27,6 +27,7 @@ function createContext() {
 
     // Provider catalog cache
     providerModelCache: null,
+    lastRoute: null,
 
     // Intercepted credentials (from Claude Code's live outgoing HTTPS requests)
     interceptedToken: null,

@@ -23,6 +23,12 @@
  * These are the values that Anthropic's gateway validates to identify
  * the client as a legitimate Claude Code instance.
  */
+const {
+  getIdentitySettings,
+  shouldReplayFingerprintHeaders,
+  shouldUseHardcodedCompatibilityFingerprint,
+} = require('./identity');
+
 const CAPTURED_HEADERS = new Set([
   'user-agent',
   'anthropic-version',
@@ -112,6 +118,7 @@ function updateFingerprint(ctx, fingerprint) {
  * @returns {object} - Auth headers for the Anthropic API
  */
 function buildAdaptiveAuthHeaders(ctx, creds) {
+  const identity = getIdentitySettings();
   const headers = {
     'anthropic-version': '2023-06-01',
     'content-type': 'application/json',
@@ -125,7 +132,12 @@ function buildAdaptiveAuthHeaders(ctx, creds) {
   if (creds.accessToken) {
     headers['authorization'] = `Bearer ${creds.accessToken}`;
 
-    // Use live fingerprint if available
+    // In "plain-api" mode, this stops here on purpose. That gives us a clean
+    // baseline: auth plus the required Anthropic API version, without any
+    // Claude-Code-like client identity replay.
+    if (!shouldReplayFingerprintHeaders(identity)) return headers;
+
+    // Use live fingerprint if available.
     const fp = ctx.liveFingerprint;
     if (fp) {
       // Merge all captured headers
@@ -134,7 +146,7 @@ function buildAdaptiveAuthHeaders(ctx, creds) {
           headers[key] = value;
         }
       }
-    } else {
+    } else if (shouldUseHardcodedCompatibilityFingerprint(identity)) {
       // Fall back to hardcoded fingerprint
       headers['accept'] = 'application/json';
       headers['anthropic-beta'] =
