@@ -128,23 +128,32 @@ describe('proxyToAnthropic — 401 retry behavior', () => {
       { status: 200, body: '{"id":"msg_1"}' },
     ]);
     const ctx = makeCtx();
-    // Pre-populate cache to verify it gets cleared.
-    ctx.cachedCredentials = { apiKey: 'sk-test-key', source: 'env:ANTHROPIC_API_KEY' };
+    // Pre-populate cache with a DISTINCT stale key so we can verify the first
+    // call uses the cached key and the retry uses the freshly discovered env key.
+    ctx.cachedCredentials = { apiKey: 'sk-OLD-stale-key', source: 'cached' };
     ctx.credentialsCachedAt = Date.now();
-    const cachedAtBefore = ctx.credentialsCachedAt;
 
     const res = makeRes();
     await proxyToAnthropic(ctx, res, '/v1/messages', '{}');
 
     assert.equal(stub.calls.length, 2, 'exactly two upstream calls (one retry)');
     assert.equal(res.statusCode, 200, 'final response uses retry result');
-    assert.ok(
-      ctx.credentialsCachedAt > cachedAtBefore || ctx.credentialsCachedAt === cachedAtBefore,
-      'cache repopulated via getCredentials',
+
+    // First call must have used the stale cached key.
+    assert.equal(
+      stub.calls[0].headers['x-api-key'],
+      'sk-OLD-stale-key',
+      'first call used the cached (stale) key',
     );
-    // After clearCredentialsCache + getCredentials, cache should now hold the
-    // freshly discovered creds (not the original cached object).
-    assert.equal(ctx.cachedCredentials.apiKey, 'sk-test-key');
+    // After clearCredentialsCache, the retry must have discovered the fresh env key.
+    assert.equal(
+      stub.calls[1].headers['x-api-key'],
+      'sk-test-key',
+      'retry used the freshly discovered env key',
+    );
+    // Cache is now repopulated with the fresh key.
+    assert.equal(ctx.cachedCredentials?.apiKey, 'sk-test-key', 'cache holds fresh credentials');
+    assert.ok(ctx.credentialsCachedAt > 0, 'cache timestamp was reset and re-populated');
   });
 
   it('does not retry more than once on persistent 401', async () => {

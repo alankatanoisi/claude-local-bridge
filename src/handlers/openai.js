@@ -138,6 +138,9 @@ function openAIToAnthropic(oai) {
  */
 function createAnthropicToOpenAIStreamConverter(res, completionId, modelName) {
   let buffer = '';
+  // Tracks the tool-call index of the currently active tool_use block so that
+  // subsequent input_json_delta events can reference the correct tool call.
+  const state = { currentToolIndex: null };
 
   return {
     write(chunk) {
@@ -152,7 +155,7 @@ function createAnthropicToOpenAIStreamConverter(res, completionId, modelName) {
 
         try {
           const event = JSON.parse(data);
-          handleAnthropicEvent(res, event, completionId, modelName);
+          handleAnthropicEvent(res, event, completionId, modelName, state);
         } catch {
           // ignore parse errors
         }
@@ -165,7 +168,7 @@ function createAnthropicToOpenAIStreamConverter(res, completionId, modelName) {
         if (data && data !== '[DONE]') {
           try {
             const event = JSON.parse(data);
-            handleAnthropicEvent(res, event, completionId, modelName);
+            handleAnthropicEvent(res, event, completionId, modelName, state);
           } catch {
             // ignore
           }
@@ -178,7 +181,7 @@ function createAnthropicToOpenAIStreamConverter(res, completionId, modelName) {
   };
 }
 
-function handleAnthropicEvent(res, event, completionId, modelName) {
+function handleAnthropicEvent(res, event, completionId, modelName, state = {}) {
   const type = event.type;
 
   if (type === 'content_block_delta') {
@@ -187,12 +190,29 @@ function handleAnthropicEvent(res, event, completionId, modelName) {
       const chunk = buildStreamChunk(completionId, modelName, delta.text);
       res.write(`data: ${JSON.stringify(chunk)}\n\n`);
     } else if (delta?.type === 'input_json_delta') {
-      // Tool input streaming — send as partial content
-      const chunk = buildStreamChunk(completionId, modelName, delta.partial_json || '');
+      // Tool input streaming — emit argument fragment under tool_calls per OpenAI spec
+      const toolIndex = state.currentToolIndex ?? 0;
+      const chunk = {
+        id: completionId,
+        object: 'chat.completion.chunk',
+        created: Math.floor(Date.now() / 1000),
+        model: modelName,
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [{ index: toolIndex, function: { arguments: delta.partial_json || '' } }],
+            },
+            finish_reason: null,
+          },
+        ],
+      };
       res.write(`data: ${JSON.stringify(chunk)}\n\n`);
     }
   } else if (type === 'content_block_start') {
     if (event.content_block?.type === 'tool_use') {
+      // Record which tool call index is now active for subsequent input_json_delta events.
+      state.currentToolIndex = event.index;
       // Signal start of tool call
       const toolChunk = {
         id: completionId,

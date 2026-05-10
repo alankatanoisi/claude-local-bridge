@@ -107,7 +107,10 @@ describe('createAnthropicToOpenAIStreamConverter', () => {
     assert.equal(toolCall.type, 'function');
     assert.equal(toolCall.function.name, 'get_weather');
 
-    const argFragments = chunks.map((c) => c.choices[0].delta.content).filter((x) => typeof x === 'string');
+    const argFragments = chunks
+      .filter((c) => c.choices[0].delta?.tool_calls)
+      .map((c) => c.choices[0].delta.tool_calls[0].function.arguments)
+      .filter((a) => a !== '' && a !== undefined);
     assert.deepEqual(argFragments, ['{"city":"', 'NYC"}']);
 
     const finishChunk = chunks.find((c) => c.choices[0].finish_reason);
