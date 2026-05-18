@@ -47,6 +47,10 @@ function createContext() {
     // Identity (for logging/debug)
     sessionId: randomUUID(),
     extensionVersion: '1.0.0',
+
+    // VS Code extension context. This is filled in during activation and gives
+    // non-UI modules one safe place to store durable files for this extension.
+    extensionContext: null,
   };
 }
 

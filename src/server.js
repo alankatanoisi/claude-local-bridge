@@ -9,6 +9,7 @@ const { handleModels } = require('./handlers/models');
 const { handleAnthropicMessages, handleCountTokens } = require('./handlers/anthropic');
 const { handleChatCompletions } = require('./handlers/openai');
 const { handleDebug, handleDebugProfiles, handleDebugIde, handleDebugSecurity } = require('./handlers/debug');
+const { handleAgentRuns, handleAgentRunStatus, handleAgentApproval } = require('./handlers/agent');
 const { getCredentials } = require('./credentials');
 
 // ─────────────────────────────────────────────
@@ -107,7 +108,9 @@ function createRequestHandler(ctx) {
     handleRequest(ctx, req, res).catch((err) => {
       log(ctx, `Request error: ${err.message}`, true);
       if (!res.headersSent) {
-        sendJson(res, 500, { error: { message: err.message, type: 'internal_error' } });
+        const statusCode = err.statusCode || 500;
+        const type = statusCode >= 500 ? 'internal_error' : 'invalid_request_error';
+        sendJson(res, statusCode, { error: { message: err.message, type } });
       } else if (!res.writableEnded) {
         res.write(`data: {"error": "${err.message.replace(/"/g, '\\"')}"}\n\ndata: [DONE]\n\n`);
         res.end();
@@ -208,6 +211,21 @@ async function handleRequest(ctx, req, res) {
   // ── Anthropic count_tokens preflight ──
   if (req.method === 'POST' && url.pathname === '/v1/messages/count_tokens') {
     return handleCountTokens(ctx, req, res);
+  }
+
+  // ── Local agent runner ──
+  if (req.method === 'POST' && url.pathname === '/v1/agent/runs') {
+    return handleAgentRuns(ctx, req, res);
+  }
+
+  const agentRunMatch = url.pathname.match(/^\/v1\/agent\/runs\/([^/]+)$/);
+  if (req.method === 'GET' && agentRunMatch) {
+    return handleAgentRunStatus(ctx, req, res, agentRunMatch[1]);
+  }
+
+  const agentApprovalMatch = url.pathname.match(/^\/v1\/agent\/runs\/([^/]+)\/approve$/);
+  if (req.method === 'POST' && agentApprovalMatch) {
+    return handleAgentApproval(ctx, req, res, agentApprovalMatch[1]);
   }
 
   // ── Debug ──

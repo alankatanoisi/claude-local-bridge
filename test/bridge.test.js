@@ -3,6 +3,7 @@
 const { describe, it, before } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 
@@ -418,6 +419,467 @@ describe('provider profiles', () => {
   });
 });
 
+describe('agent tools', () => {
+  it('allows normal project paths', async () => {
+    const { executeTool } = require('../src/agent/tools');
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-agent-tools-'));
+    fs.mkdirSync(path.join(cwd, 'src'));
+    fs.writeFileSync(path.join(cwd, 'src', 'app.js'), 'console.log("ok");');
+
+    const result = await executeTool({ cwd }, { name: 'read_file', input: { path: 'src/app.js' } });
+    assert.match(result, /console\.log/);
+  });
+
+  it('rejects path traversal outside cwd', async () => {
+    const { executeTool } = require('../src/agent/tools');
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-agent-tools-'));
+
+    await assert.rejects(
+      executeTool({ cwd }, { name: 'read_file', input: { path: '../outside.txt' } }),
+      /escapes the run working directory/,
+    );
+  });
+
+  it('rejects sensitive files', async () => {
+    const { executeTool } = require('../src/agent/tools');
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-agent-tools-'));
+    fs.writeFileSync(path.join(cwd, '.env'), 'TOKEN=secret');
+    fs.writeFileSync(path.join(cwd, 'service-credential.json'), '{}');
+
+    await assert.rejects(executeTool({ cwd }, { name: 'read_file', input: { path: '.env' } }), /Sensitive path/);
+    await assert.rejects(
+      executeTool({ cwd }, { name: 'read_file', input: { path: 'service-credential.json' } }),
+      /Credential-looking file/,
+    );
+  });
+
+  it('enforces file output size limits', async () => {
+    const { executeTool, MAX_FILE_BYTES } = require('../src/agent/tools');
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-agent-tools-'));
+    fs.writeFileSync(path.join(cwd, 'large.txt'), 'a'.repeat(MAX_FILE_BYTES + 1));
+
+    await assert.rejects(executeTool({ cwd }, { name: 'read_file', input: { path: 'large.txt' } }), /too large/);
+  });
+
+  it('writes and edits bounded project files', async () => {
+    const { executeTool } = require('../src/agent/tools');
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-agent-tools-'));
+
+    await executeTool({ cwd }, { name: 'write_file', input: { path: 'notes.txt', content: 'hello world' } });
+    const editResult = await executeTool(
+      { cwd },
+      {
+        name: 'edit_file',
+        input: { path: 'notes.txt', old_string: 'world', new_string: 'bridge' },
+      },
+    );
+
+    assert.match(editResult, /replacements/);
+    assert.equal(fs.readFileSync(path.join(cwd, 'notes.txt'), 'utf8'), 'hello bridge');
+  });
+
+  it('runs bounded bash commands in cwd', async () => {
+    const { executeTool } = require('../src/agent/tools');
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-agent-tools-'));
+    fs.writeFileSync(path.join(cwd, 'marker.txt'), 'ok');
+
+    const result = await executeTool({ cwd }, { name: 'bash', input: { command: 'pwd && ls marker.txt' } });
+
+    assert.match(result, new RegExp(cwd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(result, /marker\.txt/);
+  });
+
+  it('enforces bash timeout limits', async () => {
+    const { executeTool } = require('../src/agent/tools');
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-agent-tools-'));
+
+    await assert.rejects(
+      executeTool({ cwd }, { name: 'bash', input: { command: 'sleep 1', timeout_ms: 1 } }),
+      /timed out/,
+    );
+  });
+});
+
+describe('agent runner', () => {
+  it('completes a final text response without tools', async () => {
+    const { startRun } = require('../src/agent/runner');
+    const ctx = makeCtx();
+    const result = await startRun(
+      ctx,
+      { prompt: 'hello' },
+      {
+        modelClient: async () => ({
+          stop_reason: 'end_turn',
+          content: [{ type: 'text', text: 'done' }],
+        }),
+      },
+    );
+
+    assert.equal(result.status, 'completed');
+    assert.equal(result.final_text, 'done');
+  });
+
+  it('pauses for approval when the model requests a tool', async () => {
+    const { startRun } = require('../src/agent/runner');
+    const ctx = makeCtx();
+    const result = await startRun(
+      ctx,
+      { prompt: 'list files' },
+      {
+        modelClient: async () => ({
+          stop_reason: 'tool_use',
+          content: [{ type: 'tool_use', id: 'toolu_1', name: 'list_files', input: { path: '.' } }],
+        }),
+      },
+    );
+
+    assert.equal(result.status, 'awaiting_approval');
+    assert.equal(result.pending_tool.tool_use_id, 'toolu_1');
+    assert.equal(result.pending_tool.name, 'list_files');
+  });
+
+  it('auto-runs tools listed in allowed_tools', async () => {
+    const { startRun } = require('../src/agent/runner');
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-agent-runner-'));
+    fs.writeFileSync(path.join(cwd, 'README.md'), '# demo');
+    const ctx = makeCtx();
+    let calls = 0;
+    const modelClient = async (_ctx, body) => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          stop_reason: 'tool_use',
+          content: [{ type: 'tool_use', id: 'toolu_1', name: 'read_file', input: { path: 'README.md' } }],
+        };
+      }
+
+      const resultBlock = body.messages.at(-1).content[0];
+      assert.equal(resultBlock.tool_use_id, 'toolu_1');
+      assert.match(resultBlock.content, /demo/);
+      return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'read it' }] };
+    };
+
+    const result = await startRun(ctx, { prompt: 'read', cwd, allowed_tools: ['read_file'] }, { modelClient });
+
+    assert.equal(result.status, 'completed');
+    assert.equal(result.final_text, 'read it');
+  });
+
+  it('denies unlisted tools in dontAsk mode', async () => {
+    const { startRun } = require('../src/agent/runner');
+    const ctx = makeCtx();
+    let calls = 0;
+    const modelClient = async (_ctx, body) => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          stop_reason: 'tool_use',
+          content: [{ type: 'tool_use', id: 'toolu_1', name: 'git_status', input: {} }],
+        };
+      }
+
+      const resultBlock = body.messages.at(-1).content[0];
+      assert.equal(resultBlock.is_error, true);
+      assert.match(resultBlock.content, /denied/);
+      return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'continued' }] };
+    };
+
+    const result = await startRun(ctx, { prompt: 'check git', permission_mode: 'dontAsk' }, { modelClient });
+
+    assert.equal(result.status, 'completed');
+    assert.equal(result.final_text, 'continued');
+  });
+
+  it('auto-runs edit tools in acceptEdits mode', async () => {
+    const { startRun } = require('../src/agent/runner');
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-agent-runner-'));
+    fs.writeFileSync(path.join(cwd, 'app.js'), 'const name = "old";\n');
+    const ctx = makeCtx();
+    let calls = 0;
+    const modelClient = async () => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          stop_reason: 'tool_use',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'toolu_1',
+              name: 'edit_file',
+              input: { path: 'app.js', old_string: '"old"', new_string: '"new"' },
+            },
+          ],
+        };
+      }
+      return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'edited' }] };
+    };
+
+    const result = await startRun(ctx, { prompt: 'edit', cwd, permission_mode: 'acceptEdits' }, { modelClient });
+
+    assert.equal(result.status, 'completed');
+    assert.equal(fs.readFileSync(path.join(cwd, 'app.js'), 'utf8'), 'const name = "new";\n');
+  });
+
+  it('handles multiple allowed tool calls in one assistant message', async () => {
+    const { startRun } = require('../src/agent/runner');
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-agent-runner-'));
+    fs.writeFileSync(path.join(cwd, 'a.txt'), 'alpha');
+    fs.writeFileSync(path.join(cwd, 'b.txt'), 'beta');
+    const ctx = makeCtx();
+    let calls = 0;
+    const modelClient = async (_ctx, body) => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          stop_reason: 'tool_use',
+          content: [
+            { type: 'tool_use', id: 'toolu_1', name: 'read_file', input: { path: 'a.txt' } },
+            { type: 'tool_use', id: 'toolu_2', name: 'read_file', input: { path: 'b.txt' } },
+          ],
+        };
+      }
+
+      const toolResults = body.messages.at(-1).content;
+      assert.equal(toolResults.length, 2);
+      assert.deepEqual(
+        toolResults.map((result) => result.tool_use_id),
+        ['toolu_1', 'toolu_2'],
+      );
+      return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'done' }] };
+    };
+
+    const result = await startRun(ctx, { prompt: 'read both', cwd, allowed_tools: ['read_file'] }, { modelClient });
+
+    assert.equal(result.status, 'completed');
+  });
+
+  it('executes an approved tool and resumes the model loop', async () => {
+    const { startRun, approveTool } = require('../src/agent/runner');
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-agent-runner-'));
+    fs.writeFileSync(path.join(cwd, 'README.md'), '# demo');
+    const ctx = makeCtx();
+    let calls = 0;
+    const modelClient = async () => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          stop_reason: 'tool_use',
+          content: [{ type: 'tool_use', id: 'toolu_1', name: 'list_files', input: { path: '.' } }],
+        };
+      }
+      return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'saw README.md' }] };
+    };
+
+    const first = await startRun(ctx, { prompt: 'list files', cwd }, { modelClient });
+    const second = await approveTool(ctx, first.run_id, { tool_use_id: 'toolu_1', decision: 'allow' }, { modelClient });
+
+    assert.equal(second.status, 'completed');
+    assert.equal(second.final_text, 'saw README.md');
+    assert.ok(second.transcript.find((event) => event.type === 'tool_result' && event.content.includes('README.md')));
+  });
+
+  it('accepts batch approval decisions', async () => {
+    const { startRun, approveTool } = require('../src/agent/runner');
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'bridge-agent-runner-'));
+    fs.writeFileSync(path.join(cwd, 'README.md'), '# demo');
+    const ctx = makeCtx();
+    let calls = 0;
+    const modelClient = async (_ctx, body) => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          stop_reason: 'tool_use',
+          content: [
+            { type: 'tool_use', id: 'toolu_1', name: 'read_file', input: { path: 'README.md' } },
+            { type: 'tool_use', id: 'toolu_2', name: 'git_status', input: {} },
+          ],
+        };
+      }
+
+      const toolResults = body.messages.at(-1).content;
+      assert.equal(toolResults.length, 2);
+      assert.equal(toolResults[1].is_error, true);
+      return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'batch complete' }] };
+    };
+
+    const first = await startRun(ctx, { prompt: 'use two tools', cwd }, { modelClient });
+    const second = await approveTool(
+      ctx,
+      first.run_id,
+      {
+        decisions: [
+          { tool_use_id: 'toolu_1', decision: 'allow' },
+          { tool_use_id: 'toolu_2', decision: 'deny' },
+        ],
+      },
+      { modelClient },
+    );
+
+    assert.equal(first.pending_tools.length, 2);
+    assert.equal(second.status, 'completed');
+    assert.equal(second.final_text, 'batch complete');
+  });
+
+  it('sends denied tool results back to the model', async () => {
+    const { startRun, approveTool } = require('../src/agent/runner');
+    const ctx = makeCtx();
+    let calls = 0;
+    const modelClient = async (_ctx, body) => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          stop_reason: 'tool_use',
+          content: [{ type: 'tool_use', id: 'toolu_1', name: 'git_status', input: {} }],
+        };
+      }
+
+      const resultBlock = body.messages.at(-1).content[0];
+      assert.equal(resultBlock.is_error, true);
+      assert.match(resultBlock.content, /denied/);
+      return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] };
+    };
+
+    const first = await startRun(ctx, { prompt: 'check git' }, { modelClient });
+    const second = await approveTool(ctx, first.run_id, { tool_use_id: 'toolu_1', decision: 'deny' }, { modelClient });
+
+    assert.equal(second.status, 'completed');
+  });
+
+  it('stops runaway loops at max_turns', async () => {
+    const { startRun, approveTool } = require('../src/agent/runner');
+    const ctx = makeCtx();
+    const modelClient = async () => ({
+      stop_reason: 'tool_use',
+      content: [{ type: 'tool_use', id: 'toolu_1', name: 'git_status', input: {} }],
+    });
+
+    const first = await startRun(ctx, { prompt: 'loop', max_turns: 1 }, { modelClient });
+    const second = await approveTool(ctx, first.run_id, { tool_use_id: 'toolu_1', decision: 'deny' }, { modelClient });
+
+    assert.equal(second.status, 'error');
+    assert.match(second.error, /Max turns exceeded/);
+  });
+});
+
+describe('agent routes', () => {
+  it('returns 404 for an unknown run id', async () => {
+    const vscode = require('./__mocks__/vscode');
+    const { startServer, stopServer } = require('../src/server');
+    const ctx = makeCtx();
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key';
+    vscode.__setConfig('port', 0);
+
+    await startServer(ctx);
+    const port = ctx.server.address().port;
+    const response = await requestJson(port, 'GET', '/v1/agent/runs/not-found');
+    await stopServer(ctx);
+    delete process.env.ANTHROPIC_API_KEY;
+    vscode.__setConfig('port', 11437);
+    vscode.__resetConfig();
+
+    assert.equal(response.statusCode, 404);
+    assert.equal(response.body.error.type, 'not_found');
+  });
+
+  it('returns 400 for malformed approval payloads', async () => {
+    const vscode = require('./__mocks__/vscode');
+    const { startServer, stopServer } = require('../src/server');
+    const ctx = makeCtx();
+    ctx.agentRuns = new Map([
+      [
+        'run-1',
+        {
+          id: 'run-1',
+          status: 'awaiting_approval',
+          pendingTool: { tool_use_id: 'toolu_1', raw: { id: 'toolu_1', name: 'git_status', input: {} } },
+          transcript: [],
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+    ]);
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key';
+    vscode.__setConfig('port', 0);
+
+    await startServer(ctx);
+    const port = ctx.server.address().port;
+    const response = await requestJson(port, 'POST', '/v1/agent/runs/run-1/approve', { tool_use_id: 'toolu_1' });
+    await stopServer(ctx);
+    delete process.env.ANTHROPIC_API_KEY;
+    vscode.__setConfig('port', 11437);
+    vscode.__resetConfig();
+
+    assert.equal(response.statusCode, 400);
+    assert.match(response.body.error.message, /decision/);
+  });
+
+  it('returns 409 when approving a run that is no longer pending', async () => {
+    const vscode = require('./__mocks__/vscode');
+    const { startServer, stopServer } = require('../src/server');
+    const ctx = makeCtx();
+    ctx.agentRuns = new Map([
+      [
+        'run-1',
+        {
+          id: 'run-1',
+          status: 'completed',
+          pendingTool: null,
+          transcript: [],
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+    ]);
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key';
+    vscode.__setConfig('port', 0);
+
+    await startServer(ctx);
+    const port = ctx.server.address().port;
+    const response = await requestJson(port, 'POST', '/v1/agent/runs/run-1/approve', {
+      tool_use_id: 'toolu_1',
+      decision: 'allow',
+    });
+    await stopServer(ctx);
+    delete process.env.ANTHROPIC_API_KEY;
+    vscode.__setConfig('port', 11437);
+    vscode.__resetConfig();
+
+    assert.equal(response.statusCode, 409);
+    assert.match(response.body.error.message, /not awaiting approval/);
+  });
+
+  it('streams parseable JSON lines for agent runs', async () => {
+    const vscode = require('./__mocks__/vscode');
+    const { startServer, stopServer } = require('../src/server');
+    const ctx = makeCtx();
+    ctx.agentModelClient = async () => ({
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: 'stream done' }],
+    });
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key';
+    vscode.__setConfig('port', 0);
+
+    await startServer(ctx);
+    const port = ctx.server.address().port;
+    const response = await requestText(port, 'POST', '/v1/agent/runs', {
+      prompt: 'hello',
+      output_format: 'stream-json',
+    });
+    await stopServer(ctx);
+    delete process.env.ANTHROPIC_API_KEY;
+    vscode.__setConfig('port', 11437);
+    vscode.__resetConfig();
+
+    assert.equal(response.statusCode, 200);
+    const events = response.body
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    assert.ok(events.find((event) => event.type === 'run_started'));
+    assert.ok(events.find((event) => event.type === 'model_request'));
+    assert.ok(events.find((event) => event.type === 'completed' && event.final_text === 'stream done'));
+  });
+});
+
 // ─────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────
@@ -430,6 +892,67 @@ function makeCtx() {
     CREDS_CACHE_TTL: 300_000,
     providerModelCache: null,
   };
+}
+
+function requestJson(port, method, pathName, body) {
+  const payload = body === undefined ? null : JSON.stringify(body);
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port,
+        path: pathName,
+        method,
+        headers: payload
+          ? {
+              'content-type': 'application/json',
+              'content-length': Buffer.byteLength(payload),
+            }
+          : {},
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          resolve({ statusCode: res.statusCode, body: text ? JSON.parse(text) : null });
+        });
+      },
+    );
+    req.on('error', reject);
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+
+function requestText(port, method, pathName, body) {
+  const payload = body === undefined ? null : JSON.stringify(body);
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port,
+        path: pathName,
+        method,
+        headers: payload
+          ? {
+              'content-type': 'application/json',
+              'content-length': Buffer.byteLength(payload),
+            }
+          : {},
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => {
+          resolve({ statusCode: res.statusCode, body: Buffer.concat(chunks).toString('utf8') });
+        });
+      },
+    );
+    req.on('error', reject);
+    if (payload) req.write(payload);
+    req.end();
+  });
 }
 
 /**

@@ -196,5 +196,8 @@
         "title": "Claude Local Bridge: Show Credential Source"
       }
     ]
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.95.1"
   }
 }

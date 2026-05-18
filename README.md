@@ -4,6 +4,9 @@ A VS Code extension that exposes a local LLM gateway on your Mac.
 
 For the very granular copy/paste walkthrough, use [BEGINNER_GUIDE.md](./BEGINNER_GUIDE.md).
 
+For the new local agent runner and `curl` examples, use
+[HEADLESS_AGENT_RUNNER_BEGINNER_GUIDE.md](./HEADLESS_AGENT_RUNNER_BEGINNER_GUIDE.md).
+
 Today it supports two main jobs:
 
 1. Read your **Claude Code** credentials and expose them as a local HTTP API.

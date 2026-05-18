@@ -32,6 +32,7 @@ let ctx;
 
 function activate(context) {
   ctx = createContext();
+  ctx.extensionContext = context;
 
   ctx.outputChannel = vscode.window.createOutputChannel('Claude Local Bridge');
   context.subscriptions.push(ctx.outputChannel);

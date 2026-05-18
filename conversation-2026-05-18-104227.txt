@@ -1,0 +1,330 @@
+ ▐▛███▜▌   Claude Code v2.4.4
+▝▜█████▛▘  Sonnet 4.6 · API Usage Billing
+  ▘▘ ▝▝    ~/…/com~apple~CloudDocs/Documents/GitHub/claude-local-bridge
+
+
+ ⚠Auth conflict: Both a token (CLAUDE_CODE_OAUTH_TOKEN) and an API key 
+   (ANTHROPIC_API_KEY) are set. This may lead to unexpected behavior.
+    · Trying to use CLAUDE_CODE_OAUTH_TOKEN? Unset the ANTHROPIC_API_KEY 
+    environment variable, or claude /logout then say "No" to the API key 
+    approval before login.
+    · Trying to use ANTHROPIC_API_KEY? Unset the CLAUDE_CODE_OAUTH_TOKEN 
+    environment variable.
+
+❯ -                                                                             
+
+⏺ It looks like your message may have been sent accidentally — I just received a
+   single dash (-). Could you share what you'd like to work on?
+
+⏺ User declined to answer questions
+
+❯ Read this repository in a read-only way. Explain what this project does,      
+identify the main files involved in request handling, and describe the request  
+flow from a local client request to the upstream Anthropic API. Do not edit     
+files. Do not run tests. Keep the explanation beginner-friendly but technically 
+ accurate                                                                       
+
+⏺ I'll explore the codebase thoroughly before writing up the explanation.
+
+⏺ Explore(Explore claude-local-bridge source files)
+
+⏺ Cache hit rate 68%, below 80% threshold (^68%)
+
+⏺ Here is a complete, beginner-friendly walkthrough of the project.
+
+  ---
+  What Is Claude Local Bridge?
+
+  Claude Local Bridge is a VS Code extension that does one core thing: it turns
+  your existing Claude Code subscription into a local HTTP API server that any
+  tool on your machine can talk to.
+
+  Normally, tools like Cursor, Continue.dev, or a custom script need their own
+  Anthropic API key to reach Claude. This extension eliminates that requirement.
+   It quietly watches what Claude Code is already doing — it's already
+  authenticated, already talking to Anthropic — and exposes that same access via
+   a local server at http://localhost:11437.
+
+  Clients can speak either the Anthropic Messages API format or the OpenAI Chat 
+  Completions format. The extension handles the translation automatically.
+
+  ---
+  ★ Insight ─────────────────────────────────────
+  The most architecturally elegant part of this project is how it avoids asking
+  you for credentials at all. Rather than prompting for an API key, it
+  monkey-patches Node's https.request() and the global fetch() function. Every
+  time Claude Code makes a request to api.anthropic.com, the interceptor
+  silently reads the auth header off the outgoing request and saves it. This
+  means credentials are always fresh — they automatically update whenever Claude
+   Code refreshes its OAuth token.
+  ─────────────────────────────────────────────────
+
+  ---
+  The Main Files
+
+  ┌─────────────────────────────────────┬────────────────────────────────────┐
+  │                File                 │                Role                │
+  ├─────────────────────────────────────┼────────────────────────────────────┤
+  │                                     │ VS Code lifecycle — activated on   │
+  │ src/extension.js                    │ startup, installs interceptor,     │
+  │                                     │ starts server                      │
+  ├─────────────────────────────────────┼────────────────────────────────────┤
+  │                                     │ The HTTP server — listens on       │
+  │ src/server.js                       │ localhost:11437, routes requests   │
+  │                                     │ to handlers                        │
+  ├─────────────────────────────────────┼────────────────────────────────────┤
+  │ src/proxy.js                        │ Forwards the final request to      │
+  │                                     │ api.anthropic.com over real HTTPS  │
+  ├─────────────────────────────────────┼────────────────────────────────────┤
+  │ src/credentials.js                  │ Discovers credentials from six     │
+  │                                     │ possible sources in priority order │
+  ├─────────────────────────────────────┼────────────────────────────────────┤
+  │                                     │ A shared state object passed       │
+  │ src/context.js                      │ everywhere — holds tokens, cache,  │
+  │                                     │ server ref, status bar             │
+  ├─────────────────────────────────────┼────────────────────────────────────┤
+  │                                     │ Patches https.request and fetch to │
+  │ src/interceptors/https.js           │  capture Claude Code's live        │
+  │                                     │ credentials                        │
+  ├─────────────────────────────────────┼────────────────────────────────────┤
+  │                                     │ Captures and replays the exact     │
+  │ src/fingerprint.js                  │ headers Claude Code sends          │
+  │                                     │ (user-agent, billing headers,      │
+  │                                     │ etc.)                              │
+  ├─────────────────────────────────────┼────────────────────────────────────┤
+  │ src/handlers/anthropic.js           │ Handles requests in Anthropic      │
+  │                                     │ format (POST /v1/messages)         │
+  ├─────────────────────────────────────┼────────────────────────────────────┤
+  │                                     │ Handles requests in OpenAI format  │
+  │ src/handlers/openai.js              │ (POST /v1/chat/completions) —      │
+  │                                     │ converts before forwarding         │
+  ├─────────────────────────────────────┼────────────────────────────────────┤
+  │ src/handlers/models.js              │ Returns a list of available Claude │
+  │                                     │  models (GET /v1/models)           │
+  ├─────────────────────────────────────┼────────────────────────────────────┤
+  │                                     │ Debug/status endpoints — useful    │
+  │ src/handlers/debug.js               │ for seeing what credentials are    │
+  │                                     │ active                             │
+  ├─────────────────────────────────────┼────────────────────────────────────┤
+  │                                     │ All the format conversion logic    │
+  │ src/translators/anthropic-openai.js │ between OpenAI and Anthropic       │
+  │                                     │ message shapes                     │
+  ├─────────────────────────────────────┼────────────────────────────────────┤
+  │                                     │ A lookup table that maps model     │
+  │ src/models.js                       │ aliases (e.g. gpt-4o →             │
+  │                                     │ claude-sonnet-4-6)                 │
+  ├─────────────────────────────────────┼────────────────────────────────────┤
+  │                                     │ Controls how the bridge identifies │
+  │ src/identity.js                     │  itself to Anthropic (replaying    │
+  │                                     │ headers vs. minimal mode)          │
+  ├─────────────────────────────────────┼────────────────────────────────────┤
+  │                                     │ Shared helpers: logging, HTTP      │
+  │ src/utils.js                        │ response helpers, SSE chunk        │
+  │                                     │ builders                           │
+  └─────────────────────────────────────┴────────────────────────────────────┘
+
+  ---
+  Request Flow: Step by Step
+
+  Here is what happens from the moment your local tool sends a request, to the
+  moment it gets a response back.
+
+  Step 1 — Your client sends a request
+
+  Your tool (Cursor, a custom script, etc.) makes an HTTP request to
+  http://localhost:11437. It can use either format:
+
+  - POST /v1/messages — Anthropic's native format
+  - POST /v1/chat/completions — OpenAI's format
+
+  Step 2 — src/server.js receives and routes it
+
+  The Node.js HTTP server is listening. It reads the Content-Type, adds CORS
+  headers (only localhost origins are allowed), reads the request body, and
+  dispatches to the right handler function based on the URL path.
+
+  Step 3 — The handler parses and normalizes the request
+
+  If you sent Anthropic format (src/handlers/anthropic.js): the request is
+  parsed, the model name is resolved through the alias table (src/models.js),
+  and max_tokens is defaulted to 4096 if missing.
+
+  If you sent OpenAI format (src/handlers/openai.js): the request goes through
+  openAIToAnthropic() in the translator. This converts OpenAI's message array
+  into Anthropic's format — pulling out system messages, converting tool call
+  structures, converting image blocks, and remapping stop reasons.
+
+  ★ Insight ─────────────────────────────────────
+  The OpenAI-to-Anthropic translation is non-trivial. In OpenAI's format, tool
+  messages are separate entries in the messages array. Anthropic represents tool
+   results as tool_result content blocks nested inside a user message. The
+  translator walks the messages array and restructures these correctly. It also
+  handles image data URIs — base64-encoded images are detected and converted to
+  Anthropic's {type: "image", source: {type: "base64", ...}} block format.
+  ─────────────────────────────────────────────────
+
+  Step 4 — Credentials are discovered
+
+  src/credentials.js runs a priority chain to find valid credentials. It checks
+  these sources in order, stopping at the first one that succeeds:
+
+  1. Intercepted token — pulled from Claude Code's live outgoing requests
+  (highest priority, always fresh)
+  2. ANTHROPIC_API_KEY environment variable
+  3. CLAUDE_CODE_OAUTH_TOKEN environment variable
+  4. macOS Keychain — runs security find-generic-password -s 'Claude 
+  Code-credentials' -w and parses the JSON
+  5. ~/.claude/.credentials.json — a credential file on disk (works on
+  Linux/Windows too)
+  6. VS Code setting claudeLocalBridge.apiKey — a manual fallback (lowest
+  priority)
+
+  Results are cached for 5 minutes, so the keychain or file isn't read on every
+  request.
+
+  Step 5 — Auth headers are built
+
+  src/fingerprint.js builds the headers for the upstream Anthropic request. In
+  the default compatibility identity mode, it replays the exact headers that
+  were captured from Claude Code's requests — including user-agent,
+  anthropic-version, anthropic-beta, and Stainless SDK headers. This makes the
+  proxied request look identical to a real Claude Code request.
+
+  If no live fingerprint has been captured yet, it falls back to hardcoded
+  defaults.
+
+  Step 6 — src/proxy.js forwards the request upstream
+
+  proxyToAnthropic() opens a real HTTPS connection to api.anthropic.com (or
+  whatever hostname was intercepted from Claude Code), sends the transformed
+  request body, and starts piping the response back.
+
+  If the response is streaming (SSE), the bytes are piped directly to your
+  client without buffering. If you sent an OpenAI format request, the SSE events
+   are intercepted by a stream converter that translates each
+  content_block_delta Anthropic event into the OpenAI choices[0].delta.content
+  shape on the fly.
+
+  If Anthropic returns a 401 Unauthorized, the credential cache is cleared and
+  the request is retried exactly once with freshly discovered credentials.
+
+  Step 7 — Your client receives the response
+
+  For streaming responses, your client sees a live stream of Server-Sent Events.
+   For non-streaming, it gets a single JSON response. Either way, the format
+  matches whatever the client originally asked for — Anthropic or OpenAI —
+  without the client needing to know which upstream API was actually used.
+
+  ---
+  How the HTTPS Interceptor Works
+
+  This is the cleverest part of the extension. When the extension activates,
+  src/interceptors/https.js does this:
+
+  // Save the real function
+  ctx._originalHttpsRequest = https.request;
+
+  // Replace it with our wrapper
+  https.request = function interceptedRequest(optionsOrUrl, optionsOrCb, 
+  ...rest) {
+    // Look at the target host — is this going to Anthropic?
+    if (host is in ['api.anthropic.com', 'claude.ai', 'api.claude.ai']) {
+      // Read the auth header and save it to ctx
+      captureToken(headers);
+      captureFingerprint(headers);
+    }
+    // ALWAYS call the real https.request — never break anything
+    return ctx._originalHttpsRequest.call(this, optionsOrUrl, optionsOrCb,
+  ...rest);
+  };
+
+  The same thing is done for globalThis.fetch, because the Anthropic SDK now
+  uses the browser-style Fetch API internally. Both must be patched for full
+  coverage.
+
+  The interceptor is purely passive — it never modifies or delays any request.
+  It only reads.
+
+  ★ Insight ─────────────────────────────────────
+  The fingerprint capture goes beyond just the auth token. It records Claude
+  Code's user-agent, its anthropic-beta flags, and its Stainless SDK telemetry
+  headers (x-stainless-arch, x-stainless-runtime, etc.). These are replayed on
+  proxied requests, so Anthropic's servers see a request that looks identical to
+   a real Claude Code client — which matters for billing routing and potentially
+   for capability gating on beta features.
+  ─────────────────────────────────────────────────
+
+  ---
+  How Streaming Works End-to-End
+
+  Anthropic's streaming API sends Server-Sent Events (SSE) — a sequence of text
+  frames like:
+
+  event: content_block_delta
+  data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","te
+  xt":"Hello"}}
+
+  event: message_stop
+  data: {"type":"message_stop"}
+
+  If a client requested OpenAI-format streaming, the bridge intercepts these
+  frames and converts them on-the-fly via
+  createAnthropicToOpenAIStreamConverter(). Each incoming chunk is:
+
+  1. Accumulated in a small buffer
+  2. Split on \n\n boundaries to isolate individual SSE frames
+  3. Parsed to extract the data: JSON
+  4. Converted to the OpenAI chunk shape: {"choices": [{"delta": {"content": 
+  "Hello"}}]}
+  5. Sent to the client immediately as data: <json>\n\n
+
+  There is no full-message buffering — the client gets tokens as they arrive,
+  giving true real-time streaming.
+
+  ---
+  Summary Diagram
+
+  Your Tool (Cursor, script, etc.)
+           │
+           │  HTTP POST /v1/chat/completions  (OpenAI format)
+           │  or POST /v1/messages            (Anthropic format)
+           ▼
+    localhost:11437  [src/server.js]
+           │
+           │  Route to correct handler
+           ▼
+    Handler  [src/handlers/openai.js or anthropic.js]
+           │
+           ├─ Translate format if needed  [src/translators/anthropic-openai.js]
+           ├─ Resolve model alias         [src/models.js]
+           └─ Add Claude Code system blocks if OAuth
+           │
+           ▼
+    Credentials  [src/credentials.js]
+           │
+           ├─ Intercepted live token  (highest priority)
+           ├─ Env vars
+           ├─ macOS Keychain
+           ├─ ~/.claude/.credentials.json
+           └─ VS Code setting
+           │
+           ▼
+    Fingerprint + Auth Headers  [src/fingerprint.js]
+           │
+           ▼
+    Proxy  [src/proxy.js]  ──HTTPS──▶  api.anthropic.com
+           │
+           │  401? Clear cache + retry once
+           │  Streaming? Pipe SSE directly
+           │  OpenAI client? Convert SSE events on-the-fly
+           │
+           ▼
+    Your Tool receives the response
+
+✻ Cooked for 2m 40s
+
+⏺ Saved 1 memory
+  ⎿  user_working_style.md
+
+❯ /export                                                                       
+  ⎿  Conversation copied to clipboard
