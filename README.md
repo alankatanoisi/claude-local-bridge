@@ -7,6 +7,9 @@ For the very granular copy/paste walkthrough, use [BEGINNER_GUIDE.md](./BEGINNER
 For the new local agent runner and `curl` examples, use
 [HEADLESS_AGENT_RUNNER_BEGINNER_GUIDE.md](./HEADLESS_AGENT_RUNNER_BEGINNER_GUIDE.md).
 
+For the separate CLI runner prototype that sits on top of the bridge, use
+[docs/runner-quickstart.html](./docs/runner-quickstart.html).
+
 Today it supports two main jobs:
 
 1. Read your **Claude Code** credentials and expose them as a local HTTP API.
@@ -32,6 +35,7 @@ The bridge can now do more than plain pass-through:
 - translate **Anthropic Messages** ↔ **OpenAI Chat Completions**
 - advertise a provider-backed model catalog
 - optionally serve the gateway over **HTTPS** for Claude Cowork third-party mode
+- host both an HTTP agent API and a local CLI runner prototype on top of the same bridge
 
 ---
 

@@ -5,7 +5,7 @@
  */
 
 const { sendJson } = require('../utils');
-const { getCredentials } = require('../credentials');
+const { getCredentials, getCredentialAuthMode } = require('../credentials');
 const { getAdvertisedModels } = require('../catalog');
 const { getOpenCodeGoModels, shouldAdvertiseOpenCodeGo } = require('../providers/opencode-go');
 const { getProfilesDebug } = require('../profiles');
@@ -31,6 +31,7 @@ async function handleDebug(ctx, _req, res) {
     sessionId: ctx.sessionId,
     extensionVersion: ctx.extensionVersion,
     credentialSource: creds.source,
+    upstreamAuthMode: getCredentialAuthMode(creds),
     authenticated: !!(creds.apiKey || creds.accessToken),
     interceptedToken: ctx.interceptedToken
       ? `${ctx.interceptedToken.slice(0, 8)}...${ctx.interceptedToken.slice(-4)}`

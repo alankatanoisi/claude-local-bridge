@@ -312,6 +312,23 @@ describe('credentials.buildAuthHeaders', () => {
   });
 });
 
+describe('credentials.getCredentialAuthMode', () => {
+  it('reports x-api-key for api key credentials', () => {
+    const { getCredentialAuthMode } = require('../src/credentials');
+    assert.equal(getCredentialAuthMode({ apiKey: 'sk-test', source: 'env' }), 'x-api-key');
+  });
+
+  it('reports bearer for access token credentials', () => {
+    const { getCredentialAuthMode } = require('../src/credentials');
+    assert.equal(getCredentialAuthMode({ accessToken: 'tok-123', source: 'keychain' }), 'bearer');
+  });
+
+  it('reports none when no credential exists', () => {
+    const { getCredentialAuthMode } = require('../src/credentials');
+    assert.equal(getCredentialAuthMode({ source: 'none' }), 'none');
+  });
+});
+
 describe('IDE and security inspectors', () => {
   it('redacts Claude IDE MCP lockfile auth tokens', () => {
     const { inspectIdeLockfiles } = require('../src/ide-inspector');
@@ -877,6 +894,28 @@ describe('agent routes', () => {
     assert.ok(events.find((event) => event.type === 'run_started'));
     assert.ok(events.find((event) => event.type === 'model_request'));
     assert.ok(events.find((event) => event.type === 'completed' && event.final_text === 'stream done'));
+  });
+});
+
+describe('debug route', () => {
+  it('reports the resolved upstream auth mode', async () => {
+    const vscode = require('./__mocks__/vscode');
+    const { startServer, stopServer } = require('../src/server');
+    const ctx = makeCtx();
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = 'tok-123';
+    vscode.__setConfig('port', 0);
+
+    await startServer(ctx);
+    const port = ctx.server.address().port;
+    const response = await requestJson(port, 'GET', '/v1/debug');
+    await stopServer(ctx);
+    delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    vscode.__setConfig('port', 11437);
+    vscode.__resetConfig();
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.credentialSource, 'env:CLAUDE_CODE_OAUTH_TOKEN');
+    assert.equal(response.body.upstreamAuthMode, 'bearer');
   });
 });
 
