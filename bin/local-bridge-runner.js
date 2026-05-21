@@ -54,6 +54,8 @@ Options:\n\
 \n\
 Examples:\n\
   node bin/local-bridge-runner.js "Explain this repo"\n\
+  node bin/local-bridge-runner.js --cwd /path/to/project "Summarize that project"\n\
+  node bin/local-bridge-runner.js --cwd /path/to/project --include-file README.md "Review the README"\n\
   node bin/local-bridge-runner.js --stream "List and explain src/server.js"\n\
   node bin/local-bridge-runner.js --resume ~/.bridge-runner/logs/run.jsonl "Continue"\n\
   node bin/local-bridge-runner.js --accept-edits --allow-shell --dont-ask "Run npm test and fix"\n\

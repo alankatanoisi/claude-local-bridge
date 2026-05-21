@@ -327,6 +327,65 @@
       </section>
 
       <section>
+        <h2>Testing Other Local Folders</h2>
+        <p>
+          The safest pattern is to run the runner from this repository, then point it at another project with
+          <code>--cwd</code>. Think of it as two folders:
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Folder</th>
+              <th>What it means</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Runner repo folder</td>
+              <td>The folder that contains <code>bin/local-bridge-runner.js</code>.</td>
+            </tr>
+            <tr>
+              <td>Target project folder</td>
+              <td>The folder you want the model's tools to inspect or edit. This is passed as <code>--cwd</code>.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>Read-only smoke test against any project</h3>
+        <pre><code>cd "/Users/alanman/.codex/worktrees/runner-clean-pr"
+node bin/local-bridge-runner.js \
+  --cwd "/Users/alanman/path/to/another/project" \
+  --max-steps 8 \
+  --verbose \
+  "List the top-level files, summarize what this project does, then stop. Do not edit files."</code></pre>
+
+        <p>
+          If it worked, you should see verbose lines like <code>[runner] step 1: tool_call list_files</code>, followed
+          by a final summary. If the model loops, lower <code>--max-steps</code> and make the prompt more explicit.
+        </p>
+
+        <h3>Attach files from that target project</h3>
+        <pre><code>cd "/Users/alanman/.codex/worktrees/runner-clean-pr"
+node bin/local-bridge-runner.js \
+  --cwd "/Users/alanman/path/to/another/project" \
+  --include-file README.md \
+  --include-file package.json \
+  "Review the attached files and explain the project setup. Do not edit files."</code></pre>
+
+        <h3>Use stdin from that target project</h3>
+        <pre><code>cd "/Users/alanman/.codex/worktrees/runner-clean-pr"
+cat "/Users/alanman/path/to/another/project/README.md" | node bin/local-bridge-runner.js \
+  --cwd "/Users/alanman/path/to/another/project" \
+  "Summarize this README and suggest one next thing to inspect."</code></pre>
+
+        <div class="callout warn">
+          <strong>Avoid the old prototype folder</strong>
+          If you run from <code>claude-local-bridge-runner-test</code>, you may be using stale code. Use the clean
+          worktree path above, or replace it with the real folder that contains the current runner.
+        </div>
+      </section>
+
+      <section>
         <h2>Available tools</h2>
         <p>
           The runner exposes read tools by default and can also expose guarded edit and shell tools when you enable
@@ -488,6 +547,12 @@
         <pre><code>node bin/local-bridge-runner.js \
   --verbose \
   "Explain what src/server.js does. Do not edit files."</code></pre>
+
+        <h3>Inspect a different local folder</h3>
+        <pre><code>node bin/local-bridge-runner.js \
+  --cwd "/Users/alanman/path/to/another/project" \
+  --verbose \
+  "List the files in this project and summarize what it does. Do not edit files."</code></pre>
 
         <h3>Review code from stdin</h3>
         <pre><code>cat src/server.js | node bin/local-bridge-runner.js \

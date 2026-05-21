@@ -366,8 +366,20 @@
         align-items: center;
         gap: 0.4rem;
       }
-      .shell-warn.show {
+      .shell-warn.show,
+      .note.show {
         display: flex;
+      }
+
+      .note {
+        background: rgba(88, 166, 255, 0.06);
+        border: 1px solid rgba(88, 166, 255, 0.2);
+        border-radius: 6px;
+        padding: 0.5rem 0.7rem;
+        font-size: 0.75rem;
+        color: var(--blue);
+        margin-top: 0.5rem;
+        display: none;
       }
 
       .divider {
@@ -381,7 +393,7 @@
     <div class="container">
       <header>
         <h1>Command Builder</h1>
-        <a href="user-guide.html">&larr; User Guide</a>
+        <a href="runner-quickstart.html">&larr; Quick Start</a>
       </header>
 
       <div class="layout">
@@ -405,6 +417,7 @@
               <label for="attachmentMode">Attachment mode</label>
               <select id="attachmentMode">
                 <option value="read">Ask model to read these project paths</option>
+                <option value="include">Include file contents with --include-file</option>
                 <option value="stdin">Pipe file contents through stdin</option>
               </select>
             </div>
@@ -412,6 +425,7 @@
               <label for="attachedPaths">Relative file paths</label>
               <textarea id="attachedPaths" placeholder="src/server.js&#10;README.md"></textarea>
             </div>
+            <div id="attachmentNote" class="note"></div>
           </div>
 
           <!-- Presets -->
@@ -423,6 +437,7 @@
               <button class="preset-btn" data-preset="auto">Auto-approve edits</button>
               <button class="preset-btn" data-preset="full">Full agent + shell</button>
               <button class="preset-btn" data-preset="automation">Automation JSON</button>
+              <button class="preset-btn" data-preset="otherfolder">Other local folder</button>
               <button class="preset-btn" data-preset="resume">Resume session</button>
               <button class="preset-btn" data-preset="debug">Verbose debug</button>
             </div>
@@ -443,9 +458,13 @@
                 </select>
               </div>
               <div class="field">
-                <label for="cwd">Working directory</label>
-                <input type="text" id="cwd" placeholder="(current directory)" />
+                <label for="cwd">Target project folder</label>
+                <input type="text" id="cwd" placeholder="/Users/alanman/path/to/project" />
               </div>
+            </div>
+            <div class="field">
+              <label for="runnerPath">Runner repo folder</label>
+              <input type="text" id="runnerPath" placeholder="/Users/alanman/.codex/worktrees/runner-clean-pr" />
             </div>
             <div class="row">
               <div class="field">
@@ -578,6 +597,7 @@
       const maxSteps = document.getElementById('maxSteps');
       const maxTokens = document.getElementById('maxTokens');
       const cwd = document.getElementById('cwd');
+      const runnerPath = document.getElementById('runnerPath');
       const acceptEdits = document.getElementById('acceptEdits');
       const dontAsk = document.getElementById('dontAsk');
       const stream = document.getElementById('stream');
@@ -593,6 +613,7 @@
       const copyFeedback = document.getElementById('copyFeedback');
       const shellWarn = document.getElementById('shellWarn');
       const bashToolRow = document.getElementById('bashToolRow');
+      const attachmentNote = document.getElementById('attachmentNote');
 
       const DEFAULTS = {
         maxSteps: 16,
@@ -625,6 +646,11 @@
         const parts = ['node bin/local-bridge-runner.js'];
 
         if (cwd.value.trim()) parts.push('--cwd ' + shellQuote(cwd.value.trim()));
+        if (attachmentMode.value === 'include') {
+          for (const filePath of getAttachedPaths()) {
+            parts.push('--include-file ' + shellQuote(filePath));
+          }
+        }
         if (model.value !== DEFAULTS.model) parts.push('--model ' + model.value);
         if (+maxTokens.value !== DEFAULTS.maxTokens) parts.push('--max-tokens ' + maxTokens.value);
         if (+maxSteps.value !== DEFAULTS.maxSteps) parts.push('--max-steps ' + maxSteps.value);
@@ -648,12 +674,19 @@
         return parts;
       }
 
+      function buildCommandString(groupedForPipe = false) {
+        const command = buildCommandParts().join(' ');
+        if (!runnerPath.value.trim()) return command;
+        const cdCommand = 'cd ' + shellQuote(runnerPath.value.trim()) + ' && ' + command;
+        return groupedForPipe ? '(' + cdCommand + ')' : cdCommand;
+      }
+
       function buildRawCommand() {
-        const parts = buildCommandParts();
         const paths = getAttachedPaths();
-        const command = parts.join(' ');
+        const command = buildCommandString(paths.length > 0 && attachmentMode.value === 'stdin');
         if (paths.length > 0 && attachmentMode.value === 'stdin') {
-          return 'cat ' + paths.map(shellQuote).join(' ') + ' | ' + command;
+          const targetPrefix = cwd.value.trim() ? cwd.value.trim().replace(/\/+$/, '') + '/' : '';
+          return 'cat ' + paths.map((filePath) => shellQuote(targetPrefix + filePath)).join(' ') + ' | ' + command;
         }
         return command;
       }
@@ -666,6 +699,8 @@
         bashToolRow.style.display = allowShell.checked ? '' : 'none';
         if (allowShell.checked) shellWarn.classList.add('show');
         else shellWarn.classList.remove('show');
+
+        updateAttachmentNote();
 
         copyBtn.textContent = 'Copy to clipboard';
         copyBtn.classList.remove('copied');
@@ -681,6 +716,21 @@
         return "'" + s + "'";
       }
 
+      function updateAttachmentNote() {
+        const mode = attachmentMode.value;
+        if (mode === 'read') {
+          attachmentNote.textContent =
+            'The command adds file paths to the prompt. The model must call read_file, so this tests tool behavior.';
+        } else if (mode === 'include') {
+          attachmentNote.textContent =
+            'The command uses --include-file. The runner reads those files before the model call, with path checks and redaction.';
+        } else {
+          attachmentNote.textContent =
+            'The command uses cat. With a target project folder set, relative paths are read from that folder before piping into the runner.';
+        }
+        attachmentNote.classList.add('show');
+      }
+
       // ── Event listeners ──
       [
         prompt,
@@ -690,6 +740,7 @@
         maxSteps,
         maxTokens,
         cwd,
+        runnerPath,
         acceptEdits,
         dontAsk,
         stream,
@@ -734,6 +785,8 @@
           stream: false,
           verbose: false,
           outputFormat: 'text',
+          runnerPath: '',
+          cwd: '',
         },
         confirm: {
           prompt: 'Fix the typo in the README.',
@@ -747,6 +800,8 @@
           stream: false,
           verbose: false,
           outputFormat: 'text',
+          runnerPath: '',
+          cwd: '',
         },
         auto: {
           prompt: 'Add JSDoc comments to every exported function in src/runner/',
@@ -760,6 +815,8 @@
           stream: false,
           verbose: false,
           outputFormat: 'text',
+          runnerPath: '',
+          cwd: '',
         },
         full: {
           prompt: 'Write a quickSort function in src/quick-sort.js, add a test, and run npm test to verify.',
@@ -773,6 +830,8 @@
           stream: false,
           verbose: false,
           outputFormat: 'text',
+          runnerPath: '',
+          cwd: '',
         },
         automation: {
           prompt: 'List the files in this repo and summarize what the project does.',
@@ -786,6 +845,23 @@
           stream: false,
           verbose: false,
           outputFormat: 'stream-json',
+          runnerPath: '',
+          cwd: '',
+        },
+        otherfolder: {
+          prompt: 'List the top-level files, summarize what this project does, then stop. Do not edit files.',
+          maxSteps: 8,
+          maxTokens: 2000,
+          maxStepsDefault: true,
+          maxTokensDefault: true,
+          acceptEdits: false,
+          dontAsk: false,
+          allowShell: false,
+          stream: true,
+          verbose: true,
+          outputFormat: 'text',
+          runnerPath: '/Users/alanman/.codex/worktrees/runner-clean-pr',
+          cwd: '/Users/alanman/path/to/another/project',
         },
         resume: {
           prompt: 'Continue where we left off.',
@@ -800,6 +876,8 @@
           stream: false,
           verbose: false,
           outputFormat: 'text',
+          runnerPath: '',
+          cwd: '',
         },
         debug: {
           prompt: 'List the files under src/runner/ and read the first 15 lines of run.js.',
@@ -813,6 +891,8 @@
           stream: false,
           verbose: true,
           outputFormat: 'text',
+          runnerPath: '',
+          cwd: '',
         },
       };
 
@@ -834,6 +914,8 @@
         verbose.checked = p.verbose;
         outputFormat.value = p.outputFormat || DEFAULTS.outputFormat;
         resumePath.value = p.resumePath || '';
+        if (Object.prototype.hasOwnProperty.call(p, 'runnerPath')) runnerPath.value = p.runnerPath;
+        if (Object.prototype.hasOwnProperty.call(p, 'cwd')) cwd.value = p.cwd;
         if (p.maxStepsDefault) maxSteps.value = DEFAULTS.maxSteps;
         else maxSteps.value = p.maxSteps;
         if (p.maxTokensDefault) maxTokens.value = DEFAULTS.maxTokens;

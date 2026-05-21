@@ -5,6 +5,7 @@ A VS Code extension that reads your **Claude Code** credentials and exposes them
 Use Claude CLI with `http://localhost:11437`, and point OpenAI-style tools to `http://localhost:11437/v1` — the bridge injects your real Claude credentials so no separate Anthropic API key is needed.
 
 For the local CLI runner prototype that now ships in this repo, see [docs/runner-quickstart.html](./docs/runner-quickstart.html).
+The runner can inspect this repo or any other local project by passing that project as `--cwd`.
 
 ---
 
@@ -111,6 +112,40 @@ claude
 ```
 
 The Claude Code CLI routes requests through the bridge, which injects real credentials.
+
+## Local Bridge Runner
+
+The runner is an experimental local coding-agent loop that uses this bridge as its model transport. Run it from the
+folder that contains `bin/local-bridge-runner.js`:
+
+```bash
+node bin/local-bridge-runner.js "List the files in this repo and summarize what it does."
+```
+
+To test a different local folder, keep running the runner from this repo and point the tools at the other project with
+`--cwd`:
+
+```bash
+cd "/Users/alanman/.codex/worktrees/runner-clean-pr"
+node bin/local-bridge-runner.js \
+  --cwd "/Users/alanman/path/to/another/project" \
+  --verbose \
+  "List the top-level files, summarize the project, then stop. Do not edit files."
+```
+
+Useful runner options:
+
+| Option                  | Purpose                                                                |
+| ----------------------- | ---------------------------------------------------------------------- |
+| `--cwd <path>`          | Target project folder the tools can inspect or edit                    |
+| `--include-file <path>` | Attach a bounded file from `--cwd` before the model call               |
+| `--human-log <path>`    | Write a plain text log of the prompt, tool results, and final answer   |
+| `--stream`              | Stream assistant text live while still preserving streamed tool inputs |
+| `--accept-edits`        | Auto-approve edit/write tools                                          |
+| `--allow-shell`         | Expose the bash tool; hidden by default                                |
+
+Open [docs/command-builder.html](./docs/command-builder.html) in your browser if you prefer a form that builds these
+commands for you.
 
 ## Using with third-party OpenAI-compatible tools
 
